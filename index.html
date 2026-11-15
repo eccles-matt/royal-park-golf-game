@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Royal Park Golf</title>
+  <meta name="theme-color" content="#2f5d34">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preload" href="fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="app">
+    <div id="screen">
+      <canvas id="game" width="288" height="216" aria-label="Golf hole view. Drag to aim."></canvas>
+
+      <div id="title" class="overlay">
+        <div class="card">
+          <h1>ROYAL PARK</h1>
+          <p>HOLE 3 · PAR 4</p>
+          <p class="small">TEST LAYOUT</p>
+          <button id="startBtn" type="button">TEE OFF</button>
+          <p class="small how">DRAG THE VIEW TO AIM.<br>TAP SWING 3 TIMES:<br>START, POWER, STRAIGHT.</p>
+        </div>
+      </div>
+
+      <div id="end" class="overlay" hidden>
+        <div class="card">
+          <h1 id="endTitle">IN THE HOLE!</h1>
+          <p id="endScore"></p>
+          <button id="againBtn" type="button">PLAY AGAIN</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <div class="club">
+        <button id="prev" type="button" aria-label="Previous club">◀</button>
+        <span id="clubName">DRIVER</span>
+        <button id="next" type="button" aria-label="Next club">▶</button>
+      </div>
+      <button id="swing" type="button">SWING</button>
+      <div id="puttPad" hidden>DRAG DOWN<br>TO PUTT</div>
+      <button id="look" type="button" aria-pressed="false">LOOK AHEAD</button>
+    </div>
+  </main>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
