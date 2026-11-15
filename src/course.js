@@ -46,6 +46,28 @@ const TRAM_PX = [[100, 10], [118, 40], [160, 100], [193, 160], [226, 220], [255,
   [296, 580], [293, 610], [289, 640], [281, 670], [268, 700], [245, 730], [206, 760], [150, 790], [90, 812], [0, 836]];
 // Chain-mesh fence on the right of the 7th tee, between the tee and the road
 const FENCE7_PX = [[278, 535], [277, 510], [275, 485], [272, 460], [268, 435]];
+// 8th: a very tall fence down the right of the narrow opening, with the brown housing commission flats behind it
+const FENCE8_PX = [[30, 20], [31, 80], [31, 140], [32, 200], [33, 255]];
+// Buildings, in map pixels: centre, size in metres (w across x, d across y), height, rotation
+const BUILDINGS_PX = [
+  { kind: "shed", at: [829, 806], w: 10, d: 6, h: 3.2, rot: 0.05 },   // the clubhouse, more of a shed, right of the 1st tee
+  { kind: "flats", at: [-2, 40], w: 14, d: 34, h: 16, rot: 0.02 },   // housing commission flats right of the 8th tee
+  { kind: "flats", at: [-6, 105], w: 14, d: 34, h: 19, rot: 0.02 },
+  { kind: "flats", at: [-4, 170], w: 14, d: 34, h: 16, rot: 0.02 }
+];
+// Practice nets behind the trees on the right, midway up the 1st: an open-fronted mesh cage
+const NETS_PX = { at: [722, 772], w: 20, d: 8 };
+// Thick stands of gums: the corner of the 3rd (hides the green from the tee) and the tree line left of the 8th's opening
+const STANDS_PX = [
+  { at: [588, 445], r: 42, n: 90 }, { at: [560, 400], r: 20, n: 16 }, { at: [615, 490], r: 18, n: 12 },
+  { at: [90, 150], r: 14, n: 10 }, { at: [93, 195], r: 15, n: 11 }, { at: [97, 240], r: 15, n: 11 },
+  { at: [690, 796], r: 11, n: 4 }, { at: [722, 794], r: 11, n: 4 }, { at: [755, 797], r: 11, n: 4 }
+];
+
+function netsFence() {
+  const [cx, cy] = NETS_PX.at, w = NETS_PX.w / 2, d = NETS_PX.d / 2, x = cx * PX, y = cy * PX;
+  return { pts: [[x - w, y + d], [x - w, y - d], [x + w, y - d], [x + w, y + d]], kind: "mesh", height: 4.2 }; // open to the south
+}
 
 // --- convert to metres ---
 const P = ([x, y]) => [x * PX, y * PX];
@@ -80,7 +102,10 @@ export const COURSE = {
   train: TRAIN_PX.map(P), tram: TRAM_PX.map(P), cutFrom: CUT_FROM_PX * PX,
   cut: { floor: 5, top: 17, depth: 7 }, // half-width of the track bed, distance to the fence at the top, depth (m)
   sign: P(CLIFF_SIGN_PX),
-  fences: [{ pts: FENCE7_PX.map(P), kind: "mesh", height: 2.0 }],
+  fences: [{ pts: FENCE7_PX.map(P), kind: "mesh", height: 2.0 }, { pts: FENCE8_PX.map(P), kind: "mesh", height: 6.5 }, netsFence()],
+  fence8: FENCE8_PX.map(P),
+  buildings: BUILDINGS_PX.map(b => ({ ...b, x: b.at[0] * PX, y: b.at[1] * PX })),
+  stands: STANDS_PX.map(s => ({ x: s.at[0] * PX, y: s.at[1] * PX, r: s.r * PX, n: s.n })),
   hills: [
     // gentle rises under the greens and tees, and a few knolls and hollows around the park
     ...HOLES.map(h => ({ x: h.green.x, y: h.green.y, r: 22, h: 1.6 })),
@@ -88,7 +113,9 @@ export const COURSE = {
     { x: 380, y: 330, r: 40, h: 2.5 }, { x: 360, y: 210, r: 35, h: 2.2 }, { x: 120, y: 260, r: 45, h: 3 },
     { x: 60, y: 120, r: 30, h: 2 }, { x: 250, y: 400, r: 35, h: -2.4 }, { x: 470, y: 320, r: 30, h: 1.8 },
     { x: 520, y: 640, r: 40, h: 2.6 }, { x: 160, y: 600, r: 60, h: 3.5 }, { x: 300, y: 650, r: 50, h: -2 },
-    { x: 450, y: 560, r: 30, h: -1.8 }, { x: 330, y: 380, r: 30, h: 1.5 }
+    { x: 450, y: 560, r: 30, h: -1.8 }, { x: 330, y: 380, r: 30, h: 1.5 },
+    // the 3rd: a raised tee, and the whole hole runs downhill round the dogleg to the green
+    { x: 449, y: 342, r: 30, h: 4 }, { x: 420, y: 300, r: 55, h: 2.5 }, { x: 318, y: 205, r: 50, h: -3.2 }
   ],
   seed: 7
 };
@@ -220,12 +247,15 @@ export function makeHeightFn(course) {
 export function makeTrees(course, isPark) {
   const R = rng(course.seed * 977 + 13), trees = [];
   const clear = course.clear.map(c => ({ pts: smoothPath(c.path), half: c.width / 2 }));
-  const keep = course.holes.flatMap(h => [[h.green.x, h.green.y, 24], [h.tee.x, h.tee.y, 12]]);
+  const keep = course.holes.flatMap(h => [[h.green.x, h.green.y, 24], [h.tee.x, h.tee.y, 12]])
+    .concat(course.buildings.map(b => [b.x, b.y, Math.hypot(b.w, b.d) / 2 + 4]));
+  const f8x = course.fence8[0][0] + 1, f8y0 = course.fence8[0][1], f8y1 = course.fence8[course.fence8.length - 1][1];
   const ok = (x, y) => {
     for (const [kx, ky, r] of keep) if ((x - kx) ** 2 + (y - ky) ** 2 < r * r) return false;
     if (!isPark(x, y) || !isPark(x + 4, y) || !isPark(x - 4, y) || !isPark(x, y + 4) || !isPark(x, y - 4)) return false;
     for (const c of clear) if (distToLine(c.pts, x, y) < c.half) return false;
     if (trainDist(course, x, y) < course.cut.top + 3) return false;
+    if (x < f8x + 3 && y > f8y0 - 10 && y < f8y1 + 10) return false; // the flats' yard behind the 8th fence
     return true;
   };
   const w = course.world, M = 140, cell = 10, grid = new Map();
@@ -266,6 +296,20 @@ export function makeTrees(course, isPark) {
       }
     }
   };
+  for (const st of course.stands) {
+    let n = st.n, tries = 0;
+    while (n > 0 && tries++ < st.n * 40) {
+      const a = R() * Math.PI * 2, r = Math.sqrt(R()) * st.r, x = st.x + Math.cos(a) * r, y = st.y + Math.sin(a) * r;
+      if (near(x, y, 4.5) || !ok(x, y)) continue;
+      // a mix of tall gums over a dense understory of scrub, so you can't see through
+      const kind = R(), type = kind < 0.35 ? "river" : kind < 0.6 ? "soft" : "scrub";
+      const t = type === "river" ? { height: 19 + R() * 8, canopy: 6.5 + R() * 2.5 } : type === "soft" ? { height: 11 + R() * 5, canopy: 5 + R() * 2 } : { height: 3.5 + R() * 2.5, canopy: 3 + R() };
+      Object.assign(t, { x, y, type, variant: (R() * 3) | 0 });
+      trees.push(t);
+      const k = Math.floor(x / cell) * 4096 + Math.floor(y / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(t);
+      n--;
+    }
+  }
   for (let pass = 0; pass < 3; pass++) belt(course.train, course.cut.top + 3, course.cut.top + 30, 4, 0, 0);
   for (let pass = 0; pass < 2; pass++) belt(course.tram, 9, 28, 4, 75, 22);
   place(1100, w.x0, w.y0, w.x1, w.y1, 10);         // through the park

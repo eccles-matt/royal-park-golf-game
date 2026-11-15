@@ -98,6 +98,8 @@ export class Renderer {
     }
     // trees (the flag is drawn each frame by drawFlag so it can wave)
     for (const tr of t.trees) this.blit(cam, this.sprites[tr.type][tr.variant], tr.x, tr.y, tr.baseH, tr.height);
+    this.cam = cam;
+    for (const b of this.course.buildings) this.drawBuilding(b);
     this.baseBuf.set(buf); this.baseDepth.set(depth);
     this.cam = cam;
   }
@@ -265,6 +267,74 @@ export class Renderer {
           this.line(m0.sx, m0.sy, m1.sx, m1.sy, rail, z);
         }
       }
+    }
+  }
+
+  // Buildings: a box with the walls that face the camera and the roof if it's seen from above.
+  // Drawn into the cached frame, writing depth so trees, the ball and flags sort against it.
+  drawBuilding(b) {
+    const cam = this.cam, c = Math.cos(b.rot), s = Math.sin(b.rot);
+    if (b.base === undefined) b.base = Math.min(...[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => this.t.heightAt(b.x + (i * b.w / 2) * c - (j * b.d / 2) * s, b.y + (i * b.w / 2) * s + (j * b.d / 2) * c))) - 0.3;
+    const P = (i, j, h) => this.project(b.x + (i * b.w / 2) * c - (j * b.d / 2) * s, b.y + (i * b.w / 2) * s + (j * b.d / 2) * c, b.base + h);
+    const mid = this.project(b.x, b.y, b.base); if (mid.z > ZF || mid.z < -60) return;
+    const H = b.h + 0.3, sides = [[[-1, -1], [1, -1], b.w], [[1, -1], [1, 1], b.d], [[1, 1], [-1, 1], b.w], [[-1, 1], [-1, -1], b.d]];
+    for (const [[i0, j0], [i1, j1], len] of sides) {
+      const fx = b.x + ((i0 + i1) / 2 * b.w / 2) * c - ((j0 + j1) / 2 * b.d / 2) * s, fy = b.y + ((i0 + i1) / 2 * b.w / 2) * s + ((j0 + j1) / 2 * b.d / 2) * c;
+      const nx = fx - b.x, ny = fy - b.y;
+      if ((cam.x - fx) * nx + (cam.y - fy) * ny <= 0) continue; // facing away
+      const front = j0 === 1 && j1 === 1; // the south face: the shed's front door
+      const lit = 0.78 + 0.22 * Math.max(0, -(nx / Math.hypot(nx, ny)) * 0.8 + 0.2); // sun from the west
+      this.quad(P(i0, j0, 0), P(i1, j1, 0), P(i1, j1, H), P(i0, j0, H), (u, v) => this.wall(b, u * len, v * H, len, front, lit));
+    }
+    if (cam.h > b.base + H) this.quad(P(-1, -1, H), P(1, -1, H), P(1, 1, H), P(-1, 1, H), (u, v) => this.roof(b, u * b.w, v * b.d));
+  }
+
+  wall(b, u, v, len, front, lit) {
+    let r, g, bl;
+    if (b.kind === "flats") {
+      // brown brick, five or six storeys of windows, a few lit in the evening
+      const floor = Math.floor((v - 0.6) / 2.8), fv = (v - 0.6) % 2.8, bay = Math.floor(u / 3.2), fu = u % 3.2;
+      const win = v > 1.2 && v < b.h - 0.6 && fv > 0.9 && fv < 2.1 && fu > 0.7 && fu < 2.5;
+      const glow = ((bay * 7 + floor * 13 + (b.x | 0)) % 9) === 0;
+      [r, g, bl] = win ? (glow ? [236, 190, 120] : [58, 62, 66]) : fv < 0.25 && v > 1 ? [104, 70, 48] : [128, 86, 58];
+      if (v > b.h) [r, g, bl] = [92, 66, 50];
+    } else {
+      // weatherboard shed with a green roof edge, a door and a window on the front
+      const board = (v % 0.25) < 0.04;
+      [r, g, bl] = board ? [196, 184, 152] : [228, 216, 184];
+      if (front && Math.abs(u - len * 0.3) < 0.55 && v < 2.1) [r, g, bl] = [58, 94, 64];
+      if (front && Math.abs(u - len * 0.7) < 0.9 && v > 1 && v < 2) [r, g, bl] = [70, 80, 86];
+      if (v > b.h - 0.2) [r, g, bl] = [64, 110, 74];
+    }
+    return pack(r * lit, g * lit, bl * lit);
+  }
+
+  roof(b, u, v) {
+    if (b.kind === "flats") return ((u * 0.5) | 0) % 7 === 0 ? pack(96, 92, 88) : pack(120, 114, 106);
+    return (u % 0.5) < 0.12 ? pack(52, 92, 62) : pack(70, 122, 84); // corrugated Colorbond green
+  }
+
+  // Fill a quad (four projected points, in order) with depth, colouring each pixel from its (u, v) on the face
+  quad(a, b, c, d, colF) {
+    if (a.z < 0.5 || b.z < 0.5 || c.z < 0.5 || d.z < 0.5) return;
+    this.tri(a, b, c, [0, 0], [1, 0], [1, 1], colF);
+    this.tri(a, c, d, [0, 0], [1, 1], [0, 1], colF);
+  }
+  tri(p0, p1, p2, t0, t1, t2, colF) {
+    const x0 = Math.max(0, Math.floor(Math.min(p0.sx, p1.sx, p2.sx))), x1 = Math.min(W - 1, Math.ceil(Math.max(p0.sx, p1.sx, p2.sx)));
+    const y0 = Math.max(0, Math.floor(Math.min(p0.sy, p1.sy, p2.sy))), y1 = Math.min(H - 1, Math.ceil(Math.max(p0.sy, p1.sy, p2.sy)));
+    const den = (p1.sy - p2.sy) * (p0.sx - p2.sx) + (p2.sx - p1.sx) * (p0.sy - p2.sy); if (Math.abs(den) < 1e-6) return;
+    const { buf, depth } = this, f = this.fog(Math.min(p0.z, p1.z, p2.z)), hz = this.haze;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const a = ((p1.sy - p2.sy) * (px - p2.sx) + (p2.sx - p1.sx) * (py - p2.sy)) / den, bb = ((p2.sy - p0.sy) * (px - p2.sx) + (p0.sx - p2.sx) * (py - p2.sy)) / den, cc = 1 - a - bb;
+      if (a < -0.001 || bb < -0.001 || cc < -0.001) continue;
+      // perspective-correct u, v and depth
+      const w0 = a / p0.z, w1 = bb / p1.z, w2 = cc / p2.z, ws = w0 + w1 + w2, z = 1 / ws, i = y * W + x;
+      if (z >= depth[i]) continue;
+      const u = (w0 * t0[0] + w1 * t1[0] + w2 * t2[0]) / ws, v = (w0 * t0[1] + w1 * t1[1] + w2 * t2[1]) / ws;
+      const col = colF(u, v), r = col & 255, g = (col >> 8) & 255, bl = (col >> 16) & 255;
+      buf[i] = pack(r + (hz[0] - r) * f, g + (hz[1] - g) * f, bl + (hz[2] - bl) * f); depth[i] = z;
     }
   }
 

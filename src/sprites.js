@@ -51,10 +51,20 @@ function flag() {
   return toSprite(cv);
 }
 
+// Understory scrub (wattle and saltbush): a low, dense bush with no trunk showing
+function scrub(seed) {
+  const W = 40, H = 26, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const c = cv.getContext("2d"), R = rng(seed), T = THEME;
+  for (let k = 0; k < 4; k++) clump(c, 8 + R() * (W - 16), H * 0.45 + R() * 4, 8 + R() * 4, R, T.softDark, T.softLight);
+  c.fillStyle = T.softDark; c.fillRect(6, H * 0.55, W - 12, H * 0.45);
+  return toSprite(cv);
+}
+
 export function buildSprites() {
   return {
     river: [11, 22, 33].map(riverGum),
     soft: [44, 55, 66].map(softGum),
+    scrub: [77, 88, 99].map(scrub),
     flag: flag()
   };
 }
