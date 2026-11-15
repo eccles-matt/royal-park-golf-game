@@ -35,7 +35,7 @@ Then open http://localhost:8000.
 | `src/hud.js` | Clubhouse-style overlay: hole card, wind, hole map, club and swing meter |
 | `src/main.js` | Game flow, swing meter, aiming and controls |
 | `src/theme.js` | The golden-hour palette |
-| `sw.js` | Offline cache. Bump `VERSION` when you ship changes so phones pick them up |
+| `sw.js` | Offline support. Network first, cache as fallback, so installed copies pick up new deploys on their next launch |
 
 Units are metres. x runs east and y runs south.
 

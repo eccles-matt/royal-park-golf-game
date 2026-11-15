@@ -292,7 +292,7 @@ addEventListener("keydown", e => {
 });
 addEventListener("keyup", e => { if (e.code === "ArrowLeft") keys.left = 0; if (e.code === "ArrowRight") keys.right = 0; });
 
-function start() { $("title").hidden = true; $("end").hidden = true; reset(); }
+function start() { if (pendingReload) return location.reload(); $("title").hidden = true; $("end").hidden = true; reset(); }
 $("startBtn").onclick = start;
 $("againBtn").onclick = start;
 
@@ -303,7 +303,20 @@ requestAnimationFrame(frame);
 
 document.fonts?.load('8px "Press Start 2P"').then(() => { S.dirty = true; });
 
-if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./sw.js").catch(() => {});
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  // updateViaCache: "none" makes the browser always fetch a fresh sw.js, so new versions are noticed
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(reg => {
+    reg.update();
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update(); });
+  }).catch(() => {});
+  // When a new version takes over, reload once, but only if no hole is in progress
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) return;
+    if (S.mode === "title" || S.mode === "done") location.reload(); else pendingReload = true;
+  });
+}
+let pendingReload = false;
 
 // handle for automated checks
 window.__golf = { S, hit, terrain, hole, CLUBS, setupShot };
