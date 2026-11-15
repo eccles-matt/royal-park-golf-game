@@ -165,38 +165,25 @@ function frame(now) {
     if (toPin() < 30 || club().putter) renderer.drawSlopeFlow(now / 1000);
     renderer.drawCup();
     if (S.mode === "putt" && !S.look) {
-      const pw = S.gesture ? S.gesture.power : 0;
-      if (pw > 0.02) { if (!S.path || S.path.power !== pw || S.path.heading !== S.heading) S.path = { power: pw, heading: S.heading, pts: predictPutt(pw) }; renderer.drawPath(S.path.pts); }
-      else renderer.drawPath(straightLine(3));
+      renderer.drawPath(straightLine(3));
     }
     renderer.drawBall(S.ball, ground(), S.mode === "flight");
     renderer.end();
     const bp = ready() && !S.look ? renderer.project(S.ball.x, S.ball.y, S.ball.h) : null;
+    lastBall = bp && bp.z > 0 ? { x: bp.sx, y: bp.sy } : null;
     drawHUD(renderer.ctx, {
       hole, ball: S.ball, heading: S.heading, shot: S.mode === "flight" || S.mode === "done" ? S.strokes : S.strokes + 1,
       toPin: toPin(), onGreen: onGreen(), windDir: S.windDir, windKmh: S.windKmh, minimap: terrain.minimap,
       aimDist: Math.min(targetDist(), 400), club: club(), look: S.look, msg: S.msg, safe, time: now / 1000,
-      target: ready() && !club().putter ? `${Math.round(targetDist())}M` : club().putter && S.gesture ? `${Math.round(puttDist(S.gesture.power))}M` : "",
+      target: ready() && !club().putter ? `${Math.round(targetDist())}M` : "",
       ballScreen: bp && bp.z > 0 ? { x: bp.sx, y: bp.sy } : null,
-      gesture: S.gesture && { ...S.gesture, notch: club().putter ? null : targetDist() / aimDist() },
-      hint: ready() && !S.look && S.shotsTaken < 3 ? "PULL BACK + FLICK UP" : ""
+      gesture: S.gesture && !S.gesture.putt ? { ...S.gesture, notch: targetDist() / aimDist() } : null,
+      hint: ready() && !S.look && S.shotsTaken < 4 ? (club().putter ? "FLICK UP TO PUTT" : "PULL BACK + FLICK UP") : ""
     });
   }
   requestAnimationFrame(frame);
 }
 
-const PUTT_MU_G = 0.065 * 9.8;
-const puttDist = p => (CLUBS[putter()].maxSpeed * p) ** 2 / (2 * PUTT_MU_G);
-function predictPutt(power) {
-  const b = { x: S.ball.x, y: S.ball.y, h: S.ball.h, state: "stop" }, pts = [], still = () => 0.5;
-  launch(b, CLUBS[putter()], power, 0, S.heading, terrain, still);
-  for (let i = 0; i < 4800; i++) {
-    step(b, 1 / 240, terrain, S.wind, trees, hole.pin, still);
-    if (i % 14 === 0) pts.push([b.x, b.y, b.h]);
-    if (b.state !== "roll") { pts.push([b.x, b.y, b.h]); break; }
-  }
-  return pts;
-}
 function straightLine(len) {
   const pts = []; for (let d = 0.3; d <= len; d += 0.25) { const x = S.ball.x + Math.sin(S.heading) * d, y = S.ball.y - Math.cos(S.heading) * d; pts.push([x, y, terrain.heightAt(x, y)]); }
   return pts;
@@ -211,21 +198,34 @@ function changeClub(d) {
 }
 function toggleLook() { if (!ready() || S.gesture) return; S.look = !S.look; S.dirty = true; }
 
-// --- touch: top part of the screen aims, bottom part swings ---
-// Swing: put your finger down below the middle of the screen, pull back (down) to set power,
-// then flick up. Flicking straight up hits it straight; flicking left or right hooks or slices.
-const PULL = () => H * 0.28, FLICK_MIN = () => H * 0.07, MAX_ANGLE = 0.42, SWEET = 0.05;
-let touch = null;
+// --- touch ---
+// Touch above the ball: drag to aim (left/right) and set the target distance (up/down).
+// Touch at or below the ball: swing.
+//   Full shots: pull back (down) to set power, then flick up fast. The flick angle sets hook or slice.
+//   Letting go without a quick flick does nothing.
+//   Putts: just flick up. The faster the flick, the harder the putt.
+const PULL = () => H * 0.28, FLICK_MIN = () => H * 0.06, FLICK_SPEED = () => H * 1.2, PUTT_FULL = () => H * 4.5;
+const MAX_ANGLE = 0.42, SWEET = 0.05;
+let touch = null, lastBall = null;
 const toCanvas = e => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; };
+
+// Upward speed (canvas px per second) and direction over the last ~90ms of the gesture
+function recentFlick(g) {
+  const now = g.trail[g.trail.length - 1];
+  let i = g.trail.length - 1; while (i > 0 && now.t - g.trail[i - 1].t < 90) i--;
+  const from = g.trail[Math.max(0, i - 1)], dt = Math.max(16, now.t - from.t) / 1000;
+  return { vy: (from.y - now.y) / dt, dx: now.x - from.x, dy: from.y - now.y };
+}
 
 canvas.addEventListener("pointerdown", e => {
   if (touch) return;
   canvas.setPointerCapture(e.pointerId);
   const p = toCanvas(e);
   const onHud = inside(HIT.map, p.x, p.y) || inside(HIT.prev, p.x, p.y) || inside(HIT.next, p.x, p.y) || inside(HIT.club, p.x, p.y);
-  const swing = ready() && !S.look && !onHud && p.y > H * 0.5;
+  const ballY = lastBall ? lastBall.y : H * 0.78;
+  const swing = ready() && !S.look && !onHud && p.y >= ballY - 14;
   touch = { id: e.pointerId, x: p.x, y: p.y, x0: p.x, y0: p.y, moved: 0, axis: null, swing };
-  if (swing) S.gesture = { x: p.x, y: p.y, x0: p.x, y0: p.y, bx: p.x, by: p.y, power: 0, flick: false, t: performance.now() };
+  if (swing) S.gesture = { x: p.x, y: p.y, y0: p.y, bx: p.x, by: p.y, power: 0, putt: !!club().putter, trail: [{ x: p.x, y: p.y, t: performance.now() }] };
 });
 
 canvas.addEventListener("pointermove", e => {
@@ -234,11 +234,9 @@ canvas.addEventListener("pointermove", e => {
   touch.moved += Math.abs(dx) + Math.abs(dy); touch.x = p.x; touch.y = p.y;
   if (touch.swing) {
     const g = S.gesture; if (!g) return;
-    g.x = p.x; g.y = p.y;
-    if (!g.flick) {
-      if (p.y >= g.by) { g.bx = p.x; g.by = p.y; g.power = clamp((p.y - g.y0) / PULL(), 0, 1); }   // still pulling back
-      else if (g.by - p.y > FLICK_MIN() && g.power > 0.04) g.flick = true;                          // coming back up fast
-    }
+    g.x = p.x; g.y = p.y; g.trail.push({ x: p.x, y: p.y, t: performance.now() }); if (g.trail.length > 40) g.trail.shift();
+    if (!g.putt && p.y >= g.by) { g.bx = p.x; g.by = p.y; g.power = clamp((p.y - g.y0) / PULL(), 0, 1); }  // pulling back
+    if (g.putt) g.power = clamp(Math.max(0, recentFlick(g).vy) / PUTT_FULL(), 0, 1);
     return;
   }
   if (!touch.axis && touch.moved > 6) touch.axis = Math.abs(p.x - touch.x0) >= Math.abs(p.y - touch.y0) ? "x" : "y";
@@ -253,12 +251,17 @@ function endTouch(e, cancelled) {
   if (t.swing) {
     const g = S.gesture; S.gesture = null;
     if (!g || cancelled) return;
-    if (!g.flick && g.by - g.y > FLICK_MIN() && g.power > 0.04) g.flick = true;
-    if (g.flick) {
-      const ang = Math.atan2(g.x - g.bx, g.by - g.y);  // 0 = straight up, negative = flicked left
-      const err = Math.abs(ang) < SWEET ? 0 : clamp(-ang / MAX_ANGLE, -1.3, 1.3);
-      hit(g.power, err);
-    } else if (g.power > 0.04) say("FLICK UP TO HIT", 1.2);
+    g.trail.push({ x: t.x, y: t.y, t: performance.now() });
+    const f = recentFlick(g), ang = Math.atan2(f.dx, Math.max(1, f.dy)); // 0 = straight up, negative = flicked left
+    const err = Math.abs(ang) < SWEET ? 0 : clamp(-ang / MAX_ANGLE, -1.3, 1.3);
+    if (g.putt) {
+      if (g.y0 - t.y > FLICK_MIN() * 0.5 && f.vy > H * 0.3) hit(clamp(f.vy / PUTT_FULL(), 0.02, 1), err);
+      else if (t.moved > 8) say("FLICK UP TO PUTT", 1.2);
+      return;
+    }
+    const flicked = g.power > 0.04 && g.by - t.y > FLICK_MIN() && f.vy > FLICK_SPEED();
+    if (flicked) hit(g.power, err);
+    else if (g.power > 0.04) say("FLICK UP FASTER", 1.2);
     return;
   }
   if (t.moved < 8 && !cancelled) {
