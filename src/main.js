@@ -1,4 +1,4 @@
-import { COURSE } from "./course.js";
+import { COURSE, track, trainDist } from "./course.js";
 import { buildTerrain, SURF, SURF_NAME } from "./terrain.js";
 import { buildSprites } from "./sprites.js";
 import { Renderer, F, W, H, HZ, setSize } from "./render.js";
@@ -33,6 +33,27 @@ fitScreen();
 const renderer = new Renderer(canvas, terrain, COURSE, sprites);
 addEventListener("resize", () => { if (fitScreen()) { renderer.resize(); S.dirty = true; lastCam = ""; } });
 const trees = treeGrid(terrain.trees);
+
+// The route 58 tram runs up and down the tram line every so often. Overhead poles along the tram line
+// and down in the railway cutting.
+const TRAM = track(COURSE.tram), TRAIN = track(COURSE.train);
+const poles = [];
+for (let s = 10; s < TRAM.length; s += 35) { const [x, y] = TRAM.at(s), [dx, dy] = TRAM.dir(s); poles.push({ x: x + dy * 3, y: y - dx * 3, h: terrain.heightAt(x + dy * 3, y - dx * 3), ax: -dy, ay: dx }); }
+const trainPoles = [];
+for (let s = 0; s < TRAIN.length; s += 45) {
+  const [x, y] = TRAIN.at(s), [dx, dy] = TRAIN.dir(s); if (x < COURSE.cutFrom + 5) continue;
+  const px = x - dy * 4, py = y + dx * 4; trainPoles.push({ x: px, y: py, h: terrain.heightAt(px, py), ax: dy, ay: -dx });
+}
+let tramWait = 6 + Math.random() * 14;
+function moveTram(dt) {
+  if (!S.tram) {
+    if ((tramWait -= dt) > 0) return;
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    S.tram = { dir, s: dir > 0 ? -2 : TRAM.length + 2, speed: 8 + Math.random() * 3 };
+  }
+  const t = S.tram; t.s += t.dir * t.speed * dt;
+  if (t.s < -30 || t.s > TRAM.length + 30) { S.tram = null; tramWait = 25 + Math.random() * 50; }
+}
 
 let rand = rng(Date.now() & 0xffff);
 
@@ -185,6 +206,7 @@ function frame(now) {
     } else if ((S.stopT += dt) > 0.9) finishShot();
   }
   if (S.msgT > 0 && (S.msgT -= dt) <= 0) S.msg = "";
+  moveTram(dt);
 
   if (S.mode !== "title") {
     const cam = S.mode === "flight" ? S.shotCam : camera();
@@ -195,10 +217,13 @@ function frame(now) {
     }
     if (toPin() < 30 || club().putter) renderer.drawSlopeFlow(now / 1000);
     for (const f of COURSE.fences) renderer.drawFence(f);
-    renderer.drawSign(COURSE.cliff.sign);
-    for (const h of COURSE.holes) renderer.drawCup(h);
+    renderer.drawSign(COURSE.sign);
+    renderer.drawPoles(poles); renderer.drawPoles(trainPoles);
+    renderer.drawTram(S.tram && { ...S.tram, line: { at: s => TRAM.at(clamp(s, 0, TRAM.length)), dir: s => TRAM.dir(clamp(s, 0, TRAM.length)) } });
+    const mine = COURSE.holes.filter(h => h.section === hole.section); // only this part of the park's holes show
+    for (const h of mine) renderer.drawCup(h);
     if (S.mode === "putt" && !S.look) renderer.drawPath(S.gesture?.putt && S.gesture.power > 0.01 ? S.path || [] : straightLine(3));
-    for (const h of COURSE.holes) renderer.drawFlag(S.wind, now / 1000, h);
+    for (const h of mine) renderer.drawFlag(S.wind, now / 1000, h);
     renderer.drawBall(S.ball, ground(), S.mode === "flight");
     renderer.end();
     const bp = ready() && !S.look ? renderer.project(S.ball.x, S.ball.y, S.ball.h) : null;
@@ -414,4 +439,4 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 { const n = parseInt(new URLSearchParams(location.search).get("hole"), 10); if (n >= 1 && n <= COURSE.holes.length) practise(n - 1); }
 
 // handle for automated checks
-window.__golf = { S, hit, terrain, get hole() { return hole; }, COURSE, startHole, endHole, CLUBS, setupShot, ballCss: () => { const r = canvas.getBoundingClientRect(); return lastBall && { x: r.left + lastBall.x * r.width / W, y: r.top + lastBall.y * r.height / H }; } };
+window.__golf = { S, TRAM, hit, terrain, get hole() { return hole; }, COURSE, startHole, endHole, CLUBS, setupShot, ballCss: () => { const r = canvas.getBoundingClientRect(); return lastBall && { x: r.left + lastBall.x * r.width / W, y: r.top + lastBall.y * r.height / H }; } };

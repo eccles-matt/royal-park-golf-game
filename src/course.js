@@ -35,8 +35,15 @@ const HOLES_PX = [
 const HOLE6_CORRIDOR_PX = [[[505, 562], [420, 476], [348, 406]], 56];
 // Open ground with no trees, where the map's line crosses parkland (the 9th's tee shot)
 const CLEAR_PX = [[[[591, 873], [672, 926], [752, 980]], 34]];
-// Cliff south of the 2nd green: a post-and-rail fence, a CLIFF EDGE sign, then a drop towards the road
-const CLIFF_PX = { fence: [[738, 633], [765, 632], [795, 632], [825, 630], [850, 626]], sign: [790, 633], x0: 728, x1: 860, drop: 6 };
+// The railway runs west to east through the park in a cutting, fenced at the top. Its north wall is the
+// "cliff" behind the 2nd green, with a CLIFF EDGE sign on the fence. Traced centreline, west to east.
+const TRAIN_PX = [[0, 846], [50, 834], [130, 819], [210, 805], [290, 790], [330, 781], [410, 763], [490, 745], [570, 725],
+  [650, 703], [730, 681], [810, 656], [890, 626], [952, 597]];
+const CUT_FROM_PX = 330; // the cutting starts east of where the tram line comes alongside
+const CLIFF_SIGN_PX = [790, 636];
+// The tram line runs north to south between the 7th/8th and the rest, then curves west to meet the railway
+const TRAM_PX = [[100, 10], [118, 40], [160, 100], [193, 160], [226, 220], [255, 280], [276, 340], [288, 400], [295, 460], [297, 520],
+  [296, 580], [293, 610], [289, 640], [281, 670], [268, 700], [245, 730], [206, 760], [150, 790], [90, 812], [0, 836]];
 // Chain-mesh fence on the right of the 7th tee, between the tee and the road
 const FENCE7_PX = [[278, 535], [277, 510], [275, 485], [272, 460], [268, 435]];
 
@@ -63,17 +70,17 @@ export const HOLES = HOLES_PX.map(h => {
   return hole;
 });
 
+
 export const COURSE = {
   name: "ROYAL PARK", par: HOLES.reduce((a, h) => a + h.par, 0), yards: HOLES.reduce((a, h) => a + h.yards, 0),
   holes: HOLES, px: PX, mask: "assets/course-mask.png", maskSize: [952, 1198],
   world: { x0: 0, y0: 0, x1: 952 * PX, y1: 1198 * PX },
   hole6: { path: HOLE6_CORRIDOR_PX[0].map(P), width: HOLE6_CORRIDOR_PX[1] * PX },
   clear: CLEAR_PX.map(([path, w]) => ({ path: path.map(P), width: w * PX })),
-  cliff: { fence: CLIFF_PX.fence.map(P), sign: P(CLIFF_PX.sign), x0: CLIFF_PX.x0 * PX, x1: CLIFF_PX.x1 * PX, drop: CLIFF_PX.drop },
-  fences: [
-    { pts: CLIFF_PX.fence.map(P), kind: "rail", height: 1.0 },
-    { pts: FENCE7_PX.map(P), kind: "mesh", height: 2.0 }
-  ],
+  train: TRAIN_PX.map(P), tram: TRAM_PX.map(P), cutFrom: CUT_FROM_PX * PX,
+  cut: { floor: 5, top: 17, depth: 7 }, // half-width of the track bed, distance to the fence at the top, depth (m)
+  sign: P(CLIFF_SIGN_PX),
+  fences: [{ pts: FENCE7_PX.map(P), kind: "mesh", height: 2.0 }],
   hills: [
     // gentle rises under the greens and tees, and a few knolls and hollows around the park
     ...HOLES.map(h => ({ x: h.green.x, y: h.green.y, r: 22, h: 1.6 })),
@@ -85,6 +92,9 @@ export const COURSE = {
   ],
   seed: 7
 };
+
+COURSE.fences.push(...cuttingFences(COURSE));
+for (const h of HOLES) h.section = sectionOf(COURSE, h.tee.x, h.tee.y);
 
 // --- geometry helpers ---
 
@@ -104,6 +114,19 @@ export function smoothPath(p) {
   return out;
 }
 
+// A track to move along: position and heading at a distance s from its start
+export function track(pts) {
+  const p = smoothPath(pts), len = [0];
+  for (let i = 1; i < p.length; i++) len.push(len[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
+  const seg = s => { let i = 0; while (i < p.length - 2 && len[i + 1] < s) i++; return i; };
+  const T = {
+    length: len[len.length - 1],
+    at(s) { const i = seg(s), l = len[i + 1] - len[i], t = (s - len[i]) / l; return [p[i][0] + (p[i + 1][0] - p[i][0]) * t, p[i][1] + (p[i + 1][1] - p[i][1]) * t]; },
+    dir(s) { const i = seg(s), dx = p[i + 1][0] - p[i][0], dy = p[i + 1][1] - p[i][1], l = Math.hypot(dx, dy); return [dx / l, dy / l]; }
+  };
+  return T;
+}
+
 export function distToLine(pts, x, y) {
   let best = 1e9;
   for (let i = 0; i < pts.length - 1; i++) {
@@ -115,33 +138,59 @@ export function distToLine(pts, x, y) {
   return Math.sqrt(best);
 }
 
-// y of a west-to-east polyline at x (for the cliff fence)
+// y of a west-to-east polyline at x / x of a north-to-south polyline at y
 function lineY(pts, x) {
   for (let i = 0; i < pts.length - 1; i++) if (x >= pts[i][0] && x <= pts[i + 1][0]) { const t = (x - pts[i][0]) / (pts[i + 1][0] - pts[i][0]); return pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; }
   return x < pts[0][0] ? pts[0][1] : pts[pts.length - 1][1];
 }
 
+function lineX(pts, y) {
+  for (let i = 0; i < pts.length - 1; i++) if (y >= pts[i][1] && y <= pts[i + 1][1]) { const t = (y - pts[i][1]) / (pts[i + 1][1] - pts[i][1]); return pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t; }
+  return y < pts[0][1] ? pts[0][0] : pts[pts.length - 1][0];
+}
+
 const smooth = t => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
 
-// South of the cliff fence on the 2nd: is this point past the edge?
-export function pastCliff(course, x, y) {
-  const c = course.cliff;
-  return x > c.x0 && x < c.x1 && y > lineY(c.fence, x) + 0.5;
+// The railway and the tram line split the park into three parts: south of the railway (1, 9),
+// west of the tram line (7, 8) and the rest (2 to 6). From a hole you only see your own part.
+export function sectionOf(course, x, y) {
+  if (y > lineY(course.train, x)) return 0;
+  return x < lineX(course.tram, y) ? 1 : 2;
+}
+export const trainDist = (course, x, y) => distToLine(course.train, x, y);
+// inside the railway fences (in the cutting)
+export const inCutting = (course, x, y) => x > course.cutFrom && trainDist(course, x, y) < course.cut.top;
+
+// Fences along the top of both sides of the cutting
+export function cuttingFences(course) {
+  const pts = smoothPath(course.train).filter(p => p[0] > course.cutFrom + 2), sides = [[], []];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    const nx = -dy / l, ny = dx / l;
+    sides[0].push([pts[i][0] + nx * course.cut.top, pts[i][1] + ny * course.cut.top]);
+    sides[1].push([pts[i][0] - nx * course.cut.top, pts[i][1] - ny * course.cut.top]);
+  }
+  return sides.map(p => ({ pts: p, kind: "rail", height: 1.0 }));
 }
 
 export function makeHeightFn(course) {
-  const holes = course.holes, hills = course.hills, cl = course.cliff;
-    const raw = (x, y) => {
+  const holes = course.holes, hills = course.hills, cut = course.cut;
+  const raw = (x, y) => {
     let h = 1.6 * Math.sin(x / 41 + 0.7) * Math.cos(y / 57) + 1.1 * Math.sin((x * 0.6 + y) / 33) + 0.6 * Math.cos((x - y * 0.4) / 23);
     for (const f of hills) {
       const dx = x - f.x, dy = y - f.y; if (dx > f.r * 3 || dx < -f.r * 3 || dy > f.r * 3 || dy < -f.r * 3) continue;
       h += f.h * Math.exp(-(dx * dx + dy * dy) / (f.r * f.r));
     }
-    // the 2nd green sits above a cutting: the ground drops away past the fence and stays low across the road
-    if (x > cl.x0 - 20 && x < cl.x1 + 20 && y > cl.fence[0][1] - 20) {
-      const fy = lineY(cl.fence, x), along = smooth((x - cl.x0 + 20) / 30) * smooth((cl.x1 + 20 - x) / 30);
-      const down = smooth((y - fy - 0.5) / 5), up = smooth((y - fy - 24) / 30);
-      h -= cl.drop * along * down * (1 - up);
+    // the railway cutting: steep walls down from the fences to a flat track bed
+    if (x > course.cutFrom - 40) {
+      const ly = lineY(course.train, x);
+      if (Math.abs(y - ly) < cut.top + 30) {
+        const d = trainDist(course, x, y);
+        if (d < cut.top + 1) {
+          const k = (1 - smooth((d - cut.floor) / (cut.top - cut.floor))) * smooth((x - course.cutFrom + 40) / 40);
+          h += (-cut.depth - h) * k;
+        }
+      }
     }
     return h;
   };
@@ -176,7 +225,7 @@ export function makeTrees(course, isPark) {
     for (const [kx, ky, r] of keep) if ((x - kx) ** 2 + (y - ky) ** 2 < r * r) return false;
     if (!isPark(x, y) || !isPark(x + 4, y) || !isPark(x - 4, y) || !isPark(x, y + 4) || !isPark(x, y - 4)) return false;
     for (const c of clear) if (distToLine(c.pts, x, y) < c.half) return false;
-    if (pastCliff(course, x, y) && y < lineY(course.cliff.fence, x) + 6) return false;
+    if (trainDist(course, x, y) < course.cut.top + 3) return false;
     return true;
   };
   const w = course.world, M = 140, cell = 10, grid = new Map();
@@ -197,6 +246,28 @@ export function makeTrees(course, isPark) {
       n--;
     }
   };
+  // thick belts of trees along the railway and the tram line, so each part of the course feels closed off.
+  // The tram belt has gaps, so a passing tram can be seen.
+  const belt = (line, from, to, step, gapEvery, gapLen) => {
+    const pts = smoothPath(line);
+    let along = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1], l = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / l, ny = (bx - ax) / l;
+      for (let d = 0; d < l; d += step, along += step) {
+        if (gapEvery && along % gapEvery < gapLen) continue;
+        for (const side of [-1, 1]) {
+          const off = from + R() * (to - from), x = ax + (bx - ax) * d / l + nx * off * side, y = ay + (by - ay) * d / l + ny * off * side;
+          if (near(x, y, 6.5) || !ok(x, y)) continue;
+          const river = R() < 0.5;
+          const t = { x, y, type: river ? "river" : "soft", variant: (R() * 3) | 0, height: river ? 18 + R() * 9 : 12 + R() * 7, canopy: river ? 6 + R() * 3 : 5 + R() * 2 };
+          trees.push(t);
+          const k = Math.floor(x / cell) * 4096 + Math.floor(y / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(t);
+        }
+      }
+    }
+  };
+  for (let pass = 0; pass < 3; pass++) belt(course.train, course.cut.top + 3, course.cut.top + 30, 4, 0, 0);
+  for (let pass = 0; pass < 2; pass++) belt(course.tram, 9, 28, 4, 75, 22);
   place(1100, w.x0, w.y0, w.x1, w.y1, 10);         // through the park
   place(900, w.x0 - M, w.y0 - M, w.x1 + M, w.y1 + M, 10); // bush around the outside
   return trees;

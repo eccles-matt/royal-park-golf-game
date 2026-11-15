@@ -8,6 +8,10 @@ export const THEME = {
   roughDark: "#7b974a",
   parkDark: "#6f8a44",   // shaggier grass under the trees between holes
   road: "#a39b8c",
+  ballast: "#9d9384",
+  sleeper: "#6e5a46",
+  rail: "#5d5f63",
+  clay: "#b48a62",
   fenceMesh: "#3c4440",
   fencePost: "#6b5a44",
   rail: "#8f8a7e",

@@ -268,6 +268,81 @@ export class Renderer {
     }
   }
 
+  // Overhead line poles with a wire between them
+  drawPoles(poles) {
+    const pole = pack(...hex(THEME.rail)), wire = pack(54, 56, 60);
+    let prev = null;
+    for (const p of poles) {
+      const b = this.project(p.x, p.y, p.h), t = this.project(p.x, p.y, p.h + 6.2), a = this.project(p.x + p.ax * 2.2, p.y + p.ay * 2.2, p.h + 5.8);
+      const vis = b.z > 1 && b.z < 260 && b.sx > -60 && b.sx < W + 60;
+      if (vis) { for (let y = Math.floor(t.sy); y <= b.sy; y++) this.plot(b.sx, y, pole, b.z - 0.2); this.line(t.sx, t.sy, a.sx, a.sy, pole, b.z - 0.2); }
+      if (prev && (vis || prev.vis) && a.z > 1 && prev.a.z > 1) this.line(prev.a.sx, prev.a.sy, a.sx, a.sy, wire, Math.max(a.z, prev.a.z));
+      prev = { a, vis };
+    }
+  }
+
+  // A route 58 tram: white body, green skirt and doors, dark window band, and the number on the destination sign.
+  // Drawn as the side facing the camera plus whichever end faces it, following the curve of the track.
+  drawTram(tram) {
+    if (!tram) return;
+    const L = tram.line, LEN = 24, HW = 1.32, BODY = 3.3, cam = this.cam;
+    const head = this.project(...L.at(tram.s), 0);
+    if (head.z > 420 || head.z < -40) return;
+    const white = pack(240, 240, 232), green = pack(120, 178, 52), dark = pack(44, 52, 58), grey = pack(150, 154, 156), wheel = pack(30, 30, 30), amber = pack(255, 176, 40);
+    const n = 48, side = [];
+    for (let i = 0; i <= n; i++) {
+      const sAt = tram.s - tram.dir * (i / n) * LEN, [x, y] = L.at(sAt), [tx, ty] = L.dir(sAt), nx = -ty, ny = tx;
+      const k = (cam.x - x) * nx + (cam.y - y) * ny > 0 ? 1 : -1, h = this.t.heightAt(x, y);
+      const px = x + nx * HW * k, py = y + ny * HW * k;
+      side.push({ b: this.project(px, py, h + 0.25), t: this.project(px, py, h + BODY), u: i / n, x, y, nx, ny, h });
+    }
+    const colAt = (v, u) => {
+      if (v < 0.08) return wheel;
+      if (v > 0.93) return grey;
+      const seg = (u * 3) % 1, door = Math.abs(seg - 0.5) < 0.06;
+      if (door) return v < 0.75 ? green : dark;
+      if (v < 0.3) return green;
+      if (v > 0.5 && v < 0.82) return (u * 40) % 1 < 0.12 ? white : dark; // window pillars
+      return white;
+    };
+    const quad = (A, B, ua, ub, colF) => {
+      if (A.b.z < 0.8 || B.b.z < 0.8) return;
+      const z = Math.min(A.b.z, B.b.z) - 0.3, x0 = Math.min(A.b.sx, B.b.sx), x1 = Math.max(A.b.sx, B.b.sx);
+      for (let sx = Math.ceil(x0); sx <= Math.max(Math.ceil(x0), Math.floor(x1)); sx++) {
+        const f = x1 - x0 < 0.5 ? 0 : (sx - A.b.sx) / (B.b.sx - A.b.sx), top = A.t.sy + (B.t.sy - A.t.sy) * f, bot = A.b.sy + (B.b.sy - A.b.sy) * f, u = ua + (ub - ua) * f;
+        for (let sy = Math.ceil(top); sy <= bot; sy++) this.plot(sx, sy, colF((bot - sy) / Math.max(1, bot - top), u), z);
+      }
+    };
+    for (let i = 0; i < n; i++) quad(side[i], side[i + 1], side[i].u, side[i + 1].u, colAt);
+    // the end facing the camera, with windscreen and the 58 sign
+    for (const e of [side[0], side[n]]) {
+      const towards = (cam.x - e.x) * L.dir(tram.s)[0] + (cam.y - e.y) * L.dir(tram.s)[1];
+      if ((e === side[0]) !== (towards * tram.dir > 0)) continue;
+      const A = { b: this.project(e.x + e.nx * HW, e.y + e.ny * HW, e.h + 0.25), t: this.project(e.x + e.nx * HW, e.y + e.ny * HW, e.h + BODY) };
+      const B = { b: this.project(e.x - e.nx * HW, e.y - e.ny * HW, e.h + 0.25), t: this.project(e.x - e.nx * HW, e.y - e.ny * HW, e.h + BODY) };
+      quad(A, B, 0, 1, (v, u) => v < 0.08 ? wheel : v < 0.3 ? green : v > 0.78 && v < 0.9 && u > 0.2 && u < 0.8 ? amber : v > 0.42 && v < 0.78 && u > 0.08 && u < 0.92 ? dark : white);
+      // route number on the sign, once it's big enough to read
+      const w = Math.abs(B.b.sx - A.b.sx), cx = (A.t.sx + B.t.sx) / 2, cy = (A.t.sy + B.t.sy) / 2 + (A.b.sy - A.t.sy) * 0.16;
+      if (w > 14) this.digits("58", cx, cy, Math.max(1, Math.floor(w / 24)), dark, Math.min(A.b.z, B.b.z) - 0.4);
+    }
+    // the number on the side near the front too
+    const f = side[Math.round(n * 0.06)];
+    if (Math.abs(side[1].b.sx - side[0].b.sx) > 1.5) {
+      const cy = f.t.sy + (f.b.sy - f.t.sy) * 0.24;
+      for (let y = -4; y <= 4; y++) for (let x = -5; x <= 5; x++) this.plot(f.t.sx + x, cy + y, amber, f.b.z - 0.35);
+      this.digits("58", f.t.sx + 0.5, cy + 0.5, 1, dark, f.b.z - 0.4);
+    }
+  }
+
+  // tiny 3x5 pixel digits
+  digits(str, cx, cy, k, c, z) {
+    const G = { 5: ["111", "100", "111", "001", "111"], 8: ["111", "101", "111", "101", "111"] };
+    const w = str.length * 4 * k - k;
+    [...str].forEach((ch, n) => G[ch].forEach((row, j) => [...row].forEach((b, i) => {
+      if (b === "1") for (let a = 0; a < k; a++) for (let bb = 0; bb < k; bb++) this.plot(cx - w / 2 + (n * 4 + i) * k + a, cy - 2.5 * k + j * k + bb, c, z);
+    })));
+  }
+
   // The CLIFF EDGE warning sign behind the 2nd green: a white board with a red band on a short post
   drawSign([x, y]) {
     const h = this.t.heightAt(x, y), base = this.project(x, y, h);
