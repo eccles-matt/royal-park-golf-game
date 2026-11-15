@@ -46,24 +46,26 @@ export function treeGrid(trees) {
   return { near(x, y) { const out = [], cx = Math.floor(x / cell), cy = Math.floor(y / cell); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const a = map.get(`${cx + i},${cy + j}`); if (a) out.push(...a); } return out; } };
 }
 
-export function launch(ball, club, power, acc, heading, terrain, rand) {
+// side: flick angle in radians, negative = flicked left. The ball starts off in the flick
+// direction and keeps curving that way, so a sideways flick gives a clear hook or slice.
+export function launch(ball, club, power, side, heading, terrain, rand) {
   const lie = terrain.surfaceAt(ball.x, ball.y);
   ball.prev = { x: ball.x, y: ball.y, h: ball.h };
   ball.hitTree = null;
+  side = clamp(side, -0.6, 0.6);
   if (club.putter) {
-    const dir = heading - (acc / 0.12) * 0.035, sp = club.maxSpeed * power;
+    const dir = heading + side * 0.2, sp = club.maxSpeed * power;
     Object.assign(ball, { vx: Math.sin(dir) * sp, vy: -Math.cos(dir) * sp, vh: 0, state: "roll", sx: 0, sy: 0 });
     return;
   }
   let mul = LIE_POWER[lie] ?? 1;
   if (lie === SURF.BUNKER && club.name === "S WEDGE") mul = 0.85;
-  const err = clamp(acc / 0.12, -1.3, 1.3);
   const [gx, gy] = terrain.gradAt(ball.x, ball.y), rx = Math.cos(heading), ry = Math.sin(heading);
-  let dirErr = -err * 0.06 + clamp(gx * rx + gy * ry, -0.2, 0.2) * 0.3;
+  let dirErr = side * 0.22 + clamp(gx * rx + gy * ry, -0.2, 0.2) * 0.3;
   if (lie === SURF.ROUGH || lie === SURF.BUNKER) dirErr += (rand() - 0.5) * 0.05;
-  if (Math.abs(err) > 1) mul *= 0.8;
+  if (Math.abs(side) > 0.45) mul *= 0.85;
   const dir = heading + dirErr, loft = club.loft * Math.PI / 180, v0 = speedFor(Math.max(5, club.carry * power * mul), club.loft);
-  const curve = -err * 3.2;
+  const curve = side * 11;
   Object.assign(ball, {
     vx: Math.sin(dir) * Math.cos(loft) * v0, vy: -Math.cos(dir) * Math.cos(loft) * v0, vh: Math.sin(loft) * v0,
     sx: Math.cos(dir) * curve, sy: Math.sin(dir) * curve, state: "air"
