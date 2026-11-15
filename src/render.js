@@ -92,9 +92,8 @@ export class Renderer {
       let px = Math.round(headPx + Math.atan(ox) * F) % PW; if (px < 0) px += PW;
       for (let y = 0; y < sky; y++) { buf[y * W + sx] = pano[y * PW + px]; depth[y * W + sx] = 1e9; }
     }
-    // trees, then flag
+    // trees (the flag is drawn each frame by drawFlag so it can wave)
     for (const tr of t.trees) this.blit(cam, this.sprites[tr.type][tr.variant], tr.x, tr.y, tr.baseH, tr.height);
-    this.blit(cam, this.sprites.flag, this.hole.pin.x, this.hole.pin.y, this.pinH, 2.4);
     this.baseBuf.set(buf); this.baseDepth.set(depth);
     this.cam = cam;
   }
@@ -175,12 +174,61 @@ export class Renderer {
     for (let i = 0; i < ph; i++) this.plot(p.sx, p.sy - i, (Math.floor(i / 2) % 2) ? white : red);
   }
 
+  // The cup: dark hole, the lit far wall of the white liner, and a trimmed collar of grass around it
   drawCup() {
     const pin = this.hole.pin, p = this.project(pin.x, pin.y, this.pinH);
     if (p.z < 0.5) return;
-    const rx = Math.max(0.7, 0.16 * p.s), ry = Math.max(0.5, rx * Math.min(0.6, (this.cam.h - this.pinH) / p.z)), c = pack(36, 40, 28);
-    for (let y = Math.floor(p.sy - ry); y <= Math.ceil(p.sy + ry); y++) for (let x = Math.floor(p.sx - rx); x <= Math.ceil(p.sx + rx); x++)
-      if (((x - p.sx) / rx) ** 2 + ((y - p.sy) / ry) ** 2 <= 1.1) this.plot(x, y, c, p.z - 0.5);
+    const R = 0.16, rx = Math.max(0.8, R * p.s), ry = Math.max(0.6, rx * clamp((this.cam.h - this.pinH) / p.z, 0.12, 0.6));
+    const hole = pack(22, 26, 18), wall = pack(70, 78, 56), liner = pack(236, 236, 224), collar = pack(150, 190, 96), z = p.z - 0.5;
+    if (rx > 2.5) // collar of slightly darker, shorter grass
+      for (let y = Math.floor(p.sy - ry * 1.5); y <= Math.ceil(p.sy + ry * 1.5); y++) for (let x = Math.floor(p.sx - rx * 1.5); x <= Math.ceil(p.sx + rx * 1.5); x++) {
+        const d = ((x - p.sx) / rx) ** 2 + ((y - p.sy) / ry) ** 2;
+        if (d > 1.1 && d <= 1.45 && ((x + y) & 1)) this.plot(x, y, collar, z);
+      }
+    for (let y = Math.floor(p.sy - ry); y <= Math.ceil(p.sy + ry); y++) for (let x = Math.floor(p.sx - rx); x <= Math.ceil(p.sx + rx); x++) {
+      const u = (x - p.sx) / rx, v = (y - p.sy) / ry, d = u * u + v * v;
+      if (d > 1.1) continue;
+      let c = hole;
+      if (rx > 2.5) {
+        // the far inside wall is visible and catches the light; the liner's top edge is a bright rim
+        const rim = v < 0 && d > 0.72, far = v < -0.15 && v < -Math.sqrt(Math.max(0, 1 - u * u)) * 0.35;
+        c = rim ? liner : far ? wall : hole;
+      }
+      this.plot(x, y, c, z);
+    }
+  }
+
+  // The pin: a thin white pole with a red flag that waves with the wind. Scaled up a little when far
+  // away so it can always be seen from the tee.
+  drawFlag(wind, time) {
+    const pin = this.hole.pin, base = this.project(pin.x, pin.y, this.pinH);
+    if (base.z < 0.6) return;
+    const POLE = 2.3, k = Math.max(1, 12 / (POLE * base.s)), ph = POLE * k;
+    const white = pack(248, 246, 236), shade = pack(196, 196, 186), z = base.z - 0.3;
+    const top = this.project(pin.x, pin.y, this.pinH + ph);
+    const pw = Math.max(1, Math.min(4, 0.03 * base.s));
+    for (let y = Math.floor(top.sy); y <= Math.ceil(base.sy); y++)
+      for (let i = 0; i < pw; i++) this.plot(base.sx + i - Math.floor(pw / 2), y, i === pw - 1 && pw > 1 ? shade : white, z);
+    // the flag streams downwind
+    // (bent towards side-on to the camera, so it never shows up as a thin edge-on sliver)
+    const ws = Math.hypot(wind.x, wind.y), rx = Math.cos(this.cam.heading), ry = Math.sin(this.cam.heading);
+    let wx = ws > 0.2 ? wind.x / ws : rx, wy = ws > 0.2 ? wind.y / ws : ry;
+    const sd = wx * rx + wy * ry >= 0 ? 1 : -1; wx = wx * 0.35 + rx * sd; wy = wy * 0.35 + ry * sd;
+    const wl = Math.hypot(wx, wy); wx /= wl; wy /= wl;
+    const FW = 0.55 * k, FH = 0.36 * k, flap = 0.6 + Math.min(1, ws / 4) * 1.4;
+    const red = hex(THEME.ui.flag), steps = clamp(Math.ceil(FW * base.s * 1.6), 6, 260), vsteps = clamp(Math.ceil(FH * base.s * 1.6), 4, 200);
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps, wave = Math.sin(time * 5 * flap - u * 5) * u, droop = (1 - Math.min(1, ws / 3)) * 0.5 * u;
+      const px = pin.x + wx * u * FW - wy * wave * 0.08 * k, py = pin.y + wy * u * FW + wx * wave * 0.08 * k;
+      const lit = 0.82 + 0.18 * Math.cos(time * 5 * flap - u * 5); // folds catch the light
+      const c = pack(red[0] * lit, red[1] * lit, red[2] * lit);
+      for (let j = 0; j <= vsteps; j++) {
+        const v = j / vsteps, h = this.pinH + ph - FH * (v + droop * v * 0.6) - droop * FH * 0.4;
+        const q = this.project(px, py, h); if (q.z < 0.5) continue;
+        this.plot(q.sx, q.sy, c, q.z - 0.3);
+        if (q.s > 30) this.plot(q.sx + 1, q.sy, c, q.z - 0.3);
+      }
+    }
   }
 
   // Predicted putt: white dots with a dark edge so they read on the green
