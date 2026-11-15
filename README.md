@@ -12,7 +12,7 @@ The game fills the whole screen.
 - **Distance:** the ring and pole show where the shot lands at full power, or at the pin if it's in reach. Drag up or down away from the ball to move it. The red line on the power gauge marks the power that lands there, so you can play a ¾ or ½ shot.
 - **Swing:** put your finger on the ball (the dotted ring) and pull back to set power, then flick up quickly. Touches that miss the ball only aim. Letting go without a flick does nothing. Flicking straight up hits it straight. Flick up and to the left to hook it left, and up and to the right to slice it right. The wider the angle, the bigger the curve.
 - **Clubs:** the game picks one for the distance. Tap the arrows on the club card to change it.
-- **Putting:** touch the ball and flick towards the hole. The faster the flick, the harder the putt. The light streaks drifting across the green show which way it slopes.
+- **Putting:** like a slingshot. Touch the ball, pull back and let go. The further you pull, the harder the putt, and pulling off to one side sends it the other way. A dotted line shows how it will roll and break. Hit it too hard and it can lip out. The light streaks drifting across the green show which way it slopes.
 - **Keyboard:** hold Space to build power and release to hit. Left/right aim, up/down set the distance, Q/E change clubs, and M looks ahead.
 
 ## Running it locally

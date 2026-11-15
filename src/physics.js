@@ -51,7 +51,7 @@ export function treeGrid(trees) {
 export function launch(ball, club, power, side, heading, terrain, rand) {
   const lie = terrain.surfaceAt(ball.x, ball.y);
   ball.prev = { x: ball.x, y: ball.y, h: ball.h };
-  ball.hitTree = null;
+  ball.hitTree = null; ball.lipped = false;
   side = clamp(side, -0.6, 0.6);
   if (club.putter) {
     const dir = heading + side * 0.2, sp = club.maxSpeed * power;
@@ -119,7 +119,20 @@ export function step(ball, dt, terrain, wind, trees, pin, rand) {
     ball.vx = nvx; ball.vy = nvy;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.h = terrain.heightAt(ball.x, ball.y);
     const dp = Math.hypot(ball.x - pin.x, ball.y - pin.y);
-    if (dp < 0.11 && sp < 1.7) { ball.x = pin.x; ball.y = pin.y; ball.state = "holed"; return "holed"; }
+    if (dp < 0.11) {
+      // slow enough, or close to dead centre and not racing: it drops
+      if (sp < 1.7 || (dp < 0.05 && sp < 2.6)) { ball.x = pin.x; ball.y = pin.y; ball.state = "holed"; return "holed"; }
+      if (!ball.lipped) {
+        // too fast: it catches the far edge, bobbles up, loses pace and kicks off line
+        ball.lipped = true;
+        const ux = ball.vx / sp, uy = ball.vy / sp, side = (pin.x - ball.x) * -uy + (pin.y - ball.y) * ux; // >0: cup is to the ball's left
+        const turn = -Math.sign(side || (rand() - 0.5)) * (0.12 + rand() * 0.3) * (0.4 + dp / 0.11);
+        const ns = sp * (0.45 + rand() * 0.2), c = Math.cos(turn), sn = Math.sin(turn);
+        ball.vx = (ux * c - uy * sn) * ns; ball.vy = (ux * sn + uy * c) * ns;
+        ball.vh = Math.min(1.1, 0.35 + sp * 0.12); ball.h += 0.01; ball.sx = ball.sy = 0; ball.state = "air";
+        return "lip";
+      }
+    } else if (dp > 0.3) ball.lipped = false;
     if (sp > 60) ball.state = "stop";
     return null;
   }

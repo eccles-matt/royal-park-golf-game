@@ -150,6 +150,7 @@ function frame(now) {
       for (let i = 0; i < n; i++) {
         const ev = step(b, 1 / 240, terrain, S.wind, trees, hole.pin, rand);
         if (ev === "tree") say("TIMBER!", 1);
+        if (ev === "lip") say("LIPPED OUT!", 1.4);
         if (b.x < -140 || b.x > 440 || b.y < -140 || b.y > 540) { b.state = "stop"; b.x = clamp(b.x, -140, 440); b.y = clamp(b.y, -140, 540); b.h = ground(); }
         if (b.state === "stop" || b.state === "holed") break;
       }
@@ -166,9 +167,8 @@ function frame(now) {
     }
     if (toPin() < 30 || club().putter) renderer.drawSlopeFlow(now / 1000);
     renderer.drawCup();
-    if (S.mode === "putt" && !S.look) {
-      renderer.drawPath(straightLine(3));
-    }
+    if (S.mode === "putt" && !S.look) renderer.drawPath(S.gesture?.putt && S.gesture.power > 0.01 ? S.path || [] : straightLine(3));
+    renderer.drawFlag(S.wind, now / 1000);
     renderer.drawBall(S.ball, ground(), S.mode === "flight");
     renderer.end();
     const bp = ready() && !S.look ? renderer.project(S.ball.x, S.ball.y, S.ball.h) : null;
@@ -180,10 +180,23 @@ function frame(now) {
       target: ready() && !club().putter ? `${Math.round(targetDist())}M` : "",
       ballScreen: bp && bp.z > 0 ? { x: bp.sx, y: bp.sy } : null, ballR: BALL_R, ready: ready() && !S.look,
       gesture: S.gesture ? { ...S.gesture, notch: S.gesture.putt ? null : targetDist() / aimDist() } : null,
-      hint: ready() && !S.look && S.shotsTaken < 4 ? (club().putter ? "TOUCH BALL + FLICK" : "TOUCH BALL, PULL + FLICK") : ""
+      hint: ready() && !S.look && S.shotsTaken < 4 ? (club().putter ? "PULL BACK + LET GO" : "TOUCH BALL, PULL + FLICK") : ""
     });
   }
   requestAnimationFrame(frame);
+}
+
+// Where a putt would roll: run the same physics on a copy of the ball. Stops at the cup or a lip.
+function predictPutt(power, side) {
+  const b = { ...S.ball }, pts = [], r = () => 0.5;
+  launch(b, club(), power, side, S.heading, terrain, r);
+  let lx = b.x, ly = b.y;
+  for (let i = 0; i < 2400; i++) {
+    const ev = step(b, 1 / 120, terrain, { x: 0, y: 0 }, trees, hole.pin, r);
+    if (Math.hypot(b.x - lx, b.y - ly) > 0.22) { pts.push([b.x, b.y, terrain.heightAt(b.x, b.y)]); lx = b.x; ly = b.y; }
+    if (ev === "stop" || ev === "holed" || ev === "lip" || b.state === "stop") break;
+  }
+  return pts;
 }
 
 function straightLine(len) {
@@ -205,8 +218,10 @@ function toggleLook() { if (!ready() || S.gesture) return; S.look = !S.look; S.d
 // (left/right) and set the target distance (up/down), or tap the HUD.
 //   Full shots: pull back (down) to set power, then flick up fast. The flick angle sets hook or slice.
 //   Letting go without a quick flick does nothing.
-//   Putts: just flick up. The faster the flick, the harder the putt.
-const PULL = () => H * 0.28, FLICK_MIN = () => H * 0.06, FLICK_SPEED = () => H * 1.2, PUTT_FULL = () => H * 4.5;
+//   Putts: slingshot. Pull back from the ball and let go; the dotted line shows the roll and break.
+// Full power is reached well before the bottom of the screen, wherever the ball sits.
+const pullFor = y0 => clamp((H - safe.bottom - y0) * 0.7, H * 0.08, H * 0.18);
+const FLICK_MIN = () => H * 0.06, FLICK_SPEED = () => H * 1.2;
 const SWEET = 0.05, BALL_R = 22;
 let touch = null, lastBall = null;
 const toCanvas = e => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; };
@@ -229,7 +244,7 @@ canvas.addEventListener("pointerdown", e => {
   const onHud = inside(HIT.map, p.x, p.y) || inside(HIT.prev, p.x, p.y) || inside(HIT.next, p.x, p.y) || inside(HIT.club, p.x, p.y);
   const swing = ready() && !S.look && !onHud && onBall(p);
   touch = { id: e.pointerId, x: p.x, y: p.y, x0: p.x, y0: p.y, moved: 0, axis: null, swing };
-  if (swing) S.gesture = { x: p.x, y: p.y, y0: p.y, bx: p.x, by: p.y, power: 0, putt: !!club().putter, trail: [{ x: p.x, y: p.y, t: performance.now() }] };
+  if (swing) S.gesture = { x: p.x, y: p.y, x0: p.x, y0: p.y, bx: p.x, by: p.y, power: 0, side: 0, pull: club().putter ? clamp((H - safe.bottom - p.y) * 0.9, H * 0.12, H * 0.3) : pullFor(p.y), putt: !!club().putter, trail: [{ x: p.x, y: p.y, t: performance.now() }] };
 });
 
 canvas.addEventListener("pointermove", e => {
@@ -239,8 +254,14 @@ canvas.addEventListener("pointermove", e => {
   if (touch.swing) {
     const g = S.gesture; if (!g) return;
     g.x = p.x; g.y = p.y; g.trail.push({ x: p.x, y: p.y, t: performance.now() }); if (g.trail.length > 40) g.trail.shift();
-    if (!g.putt && p.y >= g.by) { g.bx = p.x; g.by = p.y; g.power = clamp((p.y - g.y0) / PULL(), 0, 1); }  // pulling back
-    if (g.putt) g.power = clamp(Math.max(0, recentFlick(g).vy) / PUTT_FULL(), 0, 1);
+    if (!g.putt && p.y >= g.by) { g.bx = p.x; g.by = p.y; g.power = clamp((p.y - g.y0) / g.pull, 0, 1); }  // pulling back
+    if (g.putt) {
+      // slingshot: the ball goes the opposite way to the pull
+      const dx = p.x - g.x0, dy = p.y - g.y0;
+      g.power = clamp(Math.max(0, dy) / g.pull, 0, 1) ** 1.5; // gentle at the start for short putts
+      g.side = dy > 4 ? Math.atan2(-dx, dy) : 0;
+      S.path = g.power > 0.01 ? predictPutt(g.power, g.side) : null;
+    }
     return;
   }
   if (!touch.axis && touch.moved > 6) touch.axis = Math.abs(p.x - touch.x0) >= Math.abs(p.y - touch.y0) ? "x" : "y";
@@ -259,8 +280,8 @@ function endTouch(e, cancelled) {
     const f = recentFlick(g), ang = Math.atan2(f.dx, Math.max(1, f.dy)); // 0 = straight up, negative = flicked left
     const err = Math.abs(ang) < SWEET ? 0 : ang;
     if (g.putt) {
-      if (g.y0 - t.y > FLICK_MIN() * 0.5 && f.vy > H * 0.3) hit(clamp(f.vy / PUTT_FULL(), 0.02, 1), err);
-      else if (t.moved > 8) say("FLICK UP TO PUTT", 1.2);
+      S.path = null;
+      if (g.power > 0.03) hit(g.power, Math.abs(g.side) < SWEET ? 0 : g.side);
       return;
     }
     const flicked = g.power > 0.04 && g.by - t.y > FLICK_MIN() && f.vy > FLICK_SPEED();

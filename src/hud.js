@@ -71,14 +71,7 @@ export function drawHUD(c, s) {
     c.fillStyle = "rgba(255,255,255,0.85)";
     for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + s.time * 0.8; c.fillRect(Math.round(ball.x + Math.cos(a) * r), Math.round(ball.y + Math.sin(a) * r * 0.8), 1, 1); }
   }
-  if (g && ball && g.putt) {
-    // putt: an arrow from the ball along the flick, length = strength
-    const dx = g.x - g.trail[0].x, dy = g.y - g.trail[0].y, d = Math.hypot(dx, dy) || 1, len = 10 + 50 * g.power;
-    const ux = dx / d, uy = dy / d, ex = ball.x + ux * len, ey = ball.y + uy * len;
-    c.fillStyle = "#ffffff";
-    for (let i = 2; i <= len; i += 3) c.fillRect(Math.round(ball.x + ux * i), Math.round(ball.y + uy * i), 2, 2);
-    c.fillStyle = U.flag; c.fillRect(Math.round(ex) - 2, Math.round(ey) - 2, 4, 4);
-  } else if (g && ball) {
+  if (g && ball) {
     // dotted pull-back line from ball to finger
     c.fillStyle = "#ffffff";
     const ex = g.x, ey = g.y, n = Math.max(1, Math.round(Math.hypot(ex - ball.x, ey - ball.y) / 4));
