@@ -1,9 +1,9 @@
 // Offline support. Network first, so a new deploy shows up on the next launch;
 // falls back to the cached copy when there's no connection.
-const VERSION = "rp-v7";
+const VERSION = "rp-v8";
 const FILES = [
   "./", "index.html", "styles.css", "manifest.webmanifest",
-  "fonts/press-start-2p.woff2",
+  "fonts/press-start-2p.woff2", "assets/course-mask.png",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png", "icons/apple-touch-icon.png",
   "src/main.js", "src/course.js", "src/terrain.js", "src/render.js", "src/sprites.js",
   "src/physics.js", "src/hud.js", "src/theme.js", "src/util.js"

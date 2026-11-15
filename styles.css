@@ -35,3 +35,20 @@ button:focus-visible { outline: 3px solid #f4c542; outline-offset: 2px; }
 .card p { margin: 0; font-size: 11px; line-height: 1.7; }
 .card .small { font-size: 8px; opacity: .85; }
 .card button { font-size: 13px; padding: 12px 16px; background: #f4c542; }
+
+/* scorecard on the end-of-hole card */
+.scorecard { border-collapse: collapse; font-size: 7px; margin: 0 auto; }
+.scorecard th, .scorecard td { border: 1px solid var(--border); padding: 4px 2px; min-width: 14px; text-align: center; }
+.scorecard th { text-align: left; padding-right: 4px; }
+.scorecard tr.hd { background: var(--border); color: var(--card); }
+.scorecard tr.you td { background: #fffaf0; }
+.scorecard .under { color: #d8392f; }
+.scorecard .over { color: #3d4f8f; }
+#resumeBtn { background: var(--card); }
+
+/* hole picker and small secondary buttons */
+.holes { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+.holes button, .card button.minor { font-size: 9px; padding: 8px 0; background: var(--card); box-shadow: 0 3px 0 var(--border); border-width: 2px; }
+.card button.minor { padding: 8px 10px; }
+.row { display: flex; gap: 8px; justify-content: center; }
+button:disabled { opacity: .6; cursor: wait; }

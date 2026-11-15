@@ -6,6 +6,11 @@ export const THEME = {
   city: "#b49aa6",
   rough: "#88a552",
   roughDark: "#7b974a",
+  parkDark: "#6f8a44",   // shaggier grass under the trees between holes
+  road: "#a39b8c",
+  fenceMesh: "#3c4440",
+  fencePost: "#6b5a44",
+  rail: "#8f8a7e",
   fairway: "#bdd477",
   stripe: "#cde086",
   fringe: "#a9c266",

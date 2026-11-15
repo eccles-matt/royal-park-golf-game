@@ -22,9 +22,12 @@
       <div id="title" class="overlay">
         <div class="card">
           <h1>ROYAL PARK</h1>
-          <p>HOLE 3 · PAR 4</p>
-          <p class="small">TEST LAYOUT</p>
-          <button id="startBtn" type="button">TEE OFF</button>
+          <p>9 HOLES · PAR 35</p>
+          <p class="small">2316 YARDS · PARKVILLE</p>
+          <button id="resumeBtn" type="button" hidden>CONTINUE</button>
+          <button id="startBtn" type="button" disabled>LOADING THE PARK…</button>
+          <p class="small">OR PRACTISE ONE HOLE</p>
+          <div id="holePick" class="holes"></div>
           <p class="small how">TOUCH THE BALL, PULL BACK,<br>THEN FLICK UP TO HIT.<br>FLICK LEFT OR RIGHT TO<br>CURVE IT. DRAG ANYWHERE<br>ELSE TO AIM. PUTTING: PULL<br>BACK AND LET GO.</p>
         </div>
       </div>
@@ -33,7 +36,12 @@
         <div class="card">
           <h1 id="endTitle">IN THE HOLE!</h1>
           <p id="endScore"></p>
+          <table id="card" class="scorecard"></table>
           <button id="againBtn" type="button">PLAY AGAIN</button>
+          <div class="row">
+            <button id="replayBtn" class="minor" type="button" hidden>REPLAY</button>
+            <button id="menuBtn" class="minor" type="button">MENU</button>
+          </div>
         </div>
       </div>
     </div>

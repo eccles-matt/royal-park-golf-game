@@ -32,6 +32,12 @@ export function drawHUD(c, s) {
   c.fillStyle = U.text; c.fillRect(Math.round(ax + dx) - 1, Math.round(ay + dy) - 1, 2, 2);
   text(c, `${Math.round(s.windKmh)}`, L + 47, T + 29);
 
+  // running score for the round
+  if (s.played > 0) {
+    const t = s.total === 0 ? "E" : s.total > 0 ? `+${s.total}` : `${s.total}`, tw = (t.length + 4) * FS + 4;
+    panel(c, L + 71, T + 27, tw, 11); text(c, `TOT ${t}`, L + 73, T + 29);
+  }
+
   // hole map (tap to look ahead)
   const m = HIT.map = { x: R - 45, y: T, w: 45, h: 60 }, b = hole.bounds;
   panel(c, m.x, m.y, m.w, m.h);
