@@ -12,16 +12,20 @@ export function setSize(w, h) { W = w; H = h; CX = w / 2; HZ = Math.round(h * 0.
 const ZF = 620;
 
 export class Renderer {
-  constructor(canvas, terrain, hole, sprites) {
+  constructor(canvas, terrain, course, sprites) {
     this.canvas = canvas; this.ctx = canvas.getContext("2d");
-    this.t = terrain; this.hole = hole; this.sprites = sprites;
+    this.t = terrain; this.course = course; this.sprites = sprites;
     this.haze = hex(THEME.haze);
     const far = lerp3(hex(THEME.rough), this.haze, 0.82);
     this.farCol = pack(far[0], far[1], far[2]);
     for (const tr of terrain.trees) tr.baseH = terrain.heightAt(tr.x, tr.y);
-    this.pinH = terrain.heightAt(hole.pin.x, hole.pin.y);
+    for (const h of course.holes) h.pinH = terrain.heightAt(h.pin.x, h.pin.y);
+    for (const f of course.fences) f.base = f.pts.map(([x, y]) => terrain.heightAt(x, y));
+    this.setHole(course.holes[0]);
     this.resize();
   }
+
+  setHole(hole) { this.hole = hole; }
 
   resize() {
     const c = this.canvas; c.width = W; c.height = H;
@@ -175,11 +179,11 @@ export class Renderer {
   }
 
   // The cup: dark hole, the lit far wall of the white liner, and a trimmed collar of grass around it
-  drawCup() {
-    const pin = this.hole.pin, p = this.project(pin.x, pin.y, this.pinH);
+  drawCup(hole = this.hole) {
+    const pin = hole.pin, pinH = hole.pinH, p = this.project(pin.x, pin.y, pinH);
     if (p.z < 0.5) return;
-    const R = 0.16, rx = Math.max(0.8, R * p.s), ry = Math.max(0.6, rx * clamp((this.cam.h - this.pinH) / p.z, 0.12, 0.6));
-    const hole = pack(22, 26, 18), wall = pack(70, 78, 56), liner = pack(236, 236, 224), collar = pack(150, 190, 96), z = p.z - 0.5;
+    const R = 0.16, rx = Math.max(0.8, R * p.s), ry = Math.max(0.6, rx * clamp((this.cam.h - pinH) / p.z, 0.12, 0.6));
+    const pit = pack(22, 26, 18), wall = pack(70, 78, 56), liner = pack(236, 236, 224), collar = pack(150, 190, 96), z = p.z - 0.5;
     if (rx > 2.5) // collar of slightly darker, shorter grass
       for (let y = Math.floor(p.sy - ry * 1.5); y <= Math.ceil(p.sy + ry * 1.5); y++) for (let x = Math.floor(p.sx - rx * 1.5); x <= Math.ceil(p.sx + rx * 1.5); x++) {
         const d = ((x - p.sx) / rx) ** 2 + ((y - p.sy) / ry) ** 2;
@@ -188,11 +192,11 @@ export class Renderer {
     for (let y = Math.floor(p.sy - ry); y <= Math.ceil(p.sy + ry); y++) for (let x = Math.floor(p.sx - rx); x <= Math.ceil(p.sx + rx); x++) {
       const u = (x - p.sx) / rx, v = (y - p.sy) / ry, d = u * u + v * v;
       if (d > 1.1) continue;
-      let c = hole;
+      let c = pit;
       if (rx > 2.5) {
         // the far inside wall is visible and catches the light; the liner's top edge is a bright rim
         const rim = v < 0 && d > 0.72, far = v < -0.15 && v < -Math.sqrt(Math.max(0, 1 - u * u)) * 0.35;
-        c = rim ? liner : far ? wall : hole;
+        c = rim ? liner : far ? wall : pit;
       }
       this.plot(x, y, c, z);
     }
@@ -200,12 +204,12 @@ export class Renderer {
 
   // The pin: a thin white pole with a red flag that waves with the wind. Scaled up a little when far
   // away so it can always be seen from the tee.
-  drawFlag(wind, time) {
-    const pin = this.hole.pin, base = this.project(pin.x, pin.y, this.pinH);
-    if (base.z < 0.6) return;
+  drawFlag(wind, time, hole = this.hole) {
+    const pin = hole.pin, pinH = hole.pinH, base = this.project(pin.x, pin.y, pinH);
+    if (base.z < 0.6 || base.z > ZF || base.sx < -40 || base.sx > W + 40) return;
     const POLE = 2.3, k = Math.max(1, 12 / (POLE * base.s)), ph = POLE * k;
     const white = pack(248, 246, 236), shade = pack(196, 196, 186), z = base.z - 0.3;
-    const top = this.project(pin.x, pin.y, this.pinH + ph);
+    const top = this.project(pin.x, pin.y, pinH + ph);
     const pw = Math.max(1, Math.min(4, 0.03 * base.s));
     for (let y = Math.floor(top.sy); y <= Math.ceil(base.sy); y++)
       for (let i = 0; i < pw; i++) this.plot(base.sx + i - Math.floor(pw / 2), y, i === pw - 1 && pw > 1 ? shade : white, z);
@@ -223,11 +227,59 @@ export class Renderer {
       const lit = 0.82 + 0.18 * Math.cos(time * 5 * flap - u * 5); // folds catch the light
       const c = pack(red[0] * lit, red[1] * lit, red[2] * lit);
       for (let j = 0; j <= vsteps; j++) {
-        const v = j / vsteps, h = this.pinH + ph - FH * (v + droop * v * 0.6) - droop * FH * 0.4;
+        const v = j / vsteps, h = pinH + ph - FH * (v + droop * v * 0.6) - droop * FH * 0.4;
         const q = this.project(px, py, h); if (q.z < 0.5) continue;
         this.plot(q.sx, q.sy, c, q.z - 0.3);
         if (q.s > 30) this.plot(q.sx + 1, q.sy, c, q.z - 0.3);
       }
+    }
+  }
+
+  // Fences: timber posts with a wire rail, or a dark chain-mesh fence. Drawn each frame, depth tested.
+  drawFence(f) {
+    const mesh = f.kind === "mesh", post = pack(...hex(mesh ? THEME.fenceMesh : THEME.fencePost)), rail = pack(...hex(mesh ? THEME.fenceMesh : THEME.rail));
+    const meshCol = pack(...hex(THEME.fenceMesh)), step = mesh ? 3 : 2.5;
+    for (let i = 0; i < f.pts.length - 1; i++) {
+      const [ax, ay] = f.pts[i], [bx, by] = f.pts[i + 1], len = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.round(len / step));
+      for (let k = 0; k <= n; k++) {
+        const t = k / n, x = ax + (bx - ax) * t, y = ay + (by - ay) * t, h = f.base[i] + (f.base[i + 1] - f.base[i]) * t;
+        const p0 = this.project(x, y, h), p1 = this.project(x, y, h + f.height);
+        if (p0.z < 0.8 || p0.z > ZF) continue;
+        const pw = Math.max(1, Math.min(3, Math.round(0.1 * p0.s)));
+        for (let yy = Math.floor(p1.sy); yy <= p0.sy; yy++) for (let q = 0; q < pw; q++) this.plot(p0.sx + q, yy, post, p0.z - 0.2);
+        if (k === n) continue;
+        // rails / mesh to the next post
+        const t2 = (k + 1) / n, x2 = ax + (bx - ax) * t2, y2 = ay + (by - ay) * t2, h2 = f.base[i] + (f.base[i + 1] - f.base[i]) * t2;
+        const q0 = this.project(x2, y2, h2), q1 = this.project(x2, y2, h2 + f.height);
+        if (q0.z < 0.8) continue;
+        const z = Math.min(p0.z, q0.z) - 0.2;
+        if (mesh) {
+          const x0 = Math.min(p0.sx, q0.sx), x1 = Math.max(p0.sx, q0.sx);
+          for (let sx = Math.ceil(x0); sx <= x1; sx++) {
+            const u = (sx - p0.sx) / ((q0.sx - p0.sx) || 1), top = p1.sy + (q1.sy - p1.sy) * u, bot = p0.sy + (q0.sy - p0.sy) * u;
+            for (let sy = Math.ceil(top); sy <= bot; sy++) if (((sx + sy) & 1) === 0 || sy - top < 1) this.plot(sx, sy, meshCol, z);
+          }
+        } else {
+          this.line(p1.sx, p1.sy, q1.sx, q1.sy, rail, z);
+          const m0 = this.project(x, y, h + f.height * 0.5), m1 = this.project(x2, y2, h2 + f.height * 0.5);
+          this.line(m0.sx, m0.sy, m1.sx, m1.sy, rail, z);
+        }
+      }
+    }
+  }
+
+  // The CLIFF EDGE warning sign behind the 2nd green: a white board with a red band on a short post
+  drawSign([x, y]) {
+    const h = this.t.heightAt(x, y), base = this.project(x, y, h);
+    if (base.z < 0.8 || base.z > ZF) return;
+    const s = base.s, post = pack(...hex(THEME.fencePost)), white = pack(246, 244, 236), red = pack(...hex(THEME.ui.flag)), ink = pack(40, 48, 60), z = base.z - 0.25;
+    const bw = Math.max(2, 0.5 * s), bh = Math.max(3, 0.65 * s), top = base.sy - 1.7 * s;
+    for (let yy = Math.floor(top + bh); yy <= base.sy; yy++) this.plot(base.sx, yy, post, z);
+    for (let yy = 0; yy < bh; yy++) for (let xx = 0; xx < bw; xx++) {
+      const v = yy / bh, u = xx / bw;
+      let c = v < 0.18 ? red : white;
+      if (bh > 8 && v > 0.32 && v < 0.9 && ((Math.floor(v * 7) & 1) === 0) && u > 0.15 && u < 0.85 && (xx + yy) % 3) c = ink; // lettering
+      this.plot(base.sx - bw / 2 + xx, top + yy, c, z);
     }
   }
 

@@ -21,7 +21,8 @@ const SURFACE = [
   { rest: 0.25, keep: 0.5, mu: 0.14 },  // fringe
   { rest: 0.2, keep: 0.45, mu: 0.065 }, // green
   { rest: 0, keep: 0.05, mu: 2.5 },     // bunker
-  { rest: 0.3, keep: 0.55, mu: 0.22 }   // tee
+  { rest: 0.3, keep: 0.55, mu: 0.22 },  // tee
+  { rest: 0.55, keep: 0.8, mu: 0.12 }   // road (out of bounds, but the ball still bounces on it)
 ];
 export const LIE_POWER = { [SURF.ROUGH]: 0.8, [SURF.FRINGE]: 0.95, [SURF.BUNKER]: 0.5 };
 

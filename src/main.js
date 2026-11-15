@@ -1,4 +1,4 @@
-import { HOLE3 } from "./course.js";
+import { COURSE } from "./course.js";
 import { buildTerrain, SURF, SURF_NAME } from "./terrain.js";
 import { buildSprites } from "./sprites.js";
 import { Renderer, F, W, H, HZ, setSize } from "./render.js";
@@ -6,11 +6,13 @@ import { drawHUD, HIT, inside } from "./hud.js";
 import { CLUBS, launch, step, treeGrid, LIE_POWER } from "./physics.js";
 import { rng, clamp } from "./util.js";
 
-const hole = HOLE3;
+let hole = COURSE.holes[0];
 const $ = id => document.getElementById(id);
 const canvas = $("game");
 
-const terrain = buildTerrain(hole);
+// the traced course map, needed before the park can be built
+const mask = await new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = COURSE.mask; });
+const terrain = buildTerrain(COURSE, mask);
 const sprites = buildSprites();
 
 // --- full-screen sizing ---
@@ -28,7 +30,7 @@ function fitScreen() {
   return changed;
 }
 fitScreen();
-const renderer = new Renderer(canvas, terrain, hole, sprites);
+const renderer = new Renderer(canvas, terrain, COURSE, sprites);
 addEventListener("resize", () => { if (fitScreen()) { renderer.resize(); S.dirty = true; lastCam = ""; } });
 const trees = treeGrid(terrain.trees);
 
@@ -37,7 +39,7 @@ let rand = rng(Date.now() & 0xffff);
 const S = {
   mode: "title", ball: null, strokes: 0, heading: 0, club: 0, look: false,
   wind: { x: 0, y: 0 }, windDir: 0, windKmh: 0, gesture: null, targetD: null, path: null,
-  msg: "", msgT: 0, shotCam: null, stopT: 0, dirty: true, shotsTaken: 0
+  msg: "", msgT: 0, shotCam: null, stopT: 0, dirty: true, shotsTaken: 0, holeIdx: 0, scores: [], practice: false
 };
 
 const putter = () => CLUBS.length - 1;
@@ -48,14 +50,18 @@ const onGreen = () => lie() === SURF.GREEN;
 const club = () => CLUBS[S.club];
 const ready = () => S.mode === "aim" || S.mode === "putt";
 
-function reset() {
+function startRound() { S.practice = false; S.scores = []; startHole(0); }
+
+function startHole(i) {
+  S.holeIdx = i; hole = COURSE.holes[i]; renderer.setHole(hole);
   rand = rng((Date.now() ^ (Math.random() * 1e9)) & 0x7fffffff);
   const sp = rand() * 4.2, dir = rand() * Math.PI * 2;
   S.wind = { x: Math.sin(dir) * sp, y: -Math.cos(dir) * sp }; S.windDir = dir; S.windKmh = sp * 3.6;
-  S.ball = { x: hole.tee.x, y: hole.tee.y - 2, h: 0, state: "stop" };
+  S.ball = { x: hole.tee.x + Math.sin(hole.tee.rot) * 2, y: hole.tee.y - Math.cos(hole.tee.rot) * 2, h: 0, state: "stop" };
   S.ball.h = ground();
-  S.strokes = 0;
+  S.strokes = 0; S.mode = "aim";
   setupShot(true);
+  say(`HOLE ${hole.number}  PAR ${hole.par}  ${hole.yards} YDS`, 2.4);
 }
 
 function setupShot(first) {
@@ -128,11 +134,32 @@ function finishShot() {
 }
 
 const NAMES = { "-3": "ALBATROSS", "-2": "EAGLE", "-1": "BIRDIE", "0": "PAR", "1": "BOGEY", "2": "DOUBLE BOGEY", "3": "TRIPLE BOGEY" };
+const vsPar = n => n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`;
 function endHole(pickedUp) {
   S.mode = "done";
   const diff = S.strokes - hole.par;
-  $("endTitle").textContent = pickedUp ? "PICKED UP" : S.strokes === 1 ? "HOLE IN ONE!" : "IN THE HOLE!";
-  $("endScore").textContent = pickedUp ? `${S.strokes} SHOTS` : `${S.strokes} · ${NAMES[diff] ?? "+" + diff}`;
+  if (S.practice) {
+    $("endTitle").textContent = pickedUp ? "PICKED UP" : S.strokes === 1 ? "HOLE IN ONE!" : "IN THE HOLE!";
+    $("endScore").textContent = pickedUp ? `${S.strokes} SHOTS` : `${S.strokes} · ${NAMES[diff] ?? "+" + diff}`;
+    $("card").innerHTML = "";
+    $("againBtn").textContent = S.holeIdx < COURSE.holes.length - 1 ? `PRACTISE HOLE ${hole.number + 1} →` : "PRACTISE HOLE 1 →";
+    $("replayBtn").hidden = false; $("replayBtn").textContent = `REPLAY ${hole.number}`;
+    setTimeout(() => { $("end").hidden = false; }, 900);
+    return;
+  }
+  $("replayBtn").hidden = true;
+  S.scores[S.holeIdx] = S.strokes;
+  const last = S.holeIdx === COURSE.holes.length - 1;
+  const played = S.scores.length, total = S.scores.reduce((a, b) => a + b, 0), par = COURSE.holes.slice(0, played).reduce((a, h) => a + h.par, 0);
+  $("endTitle").textContent = last ? "ROUND OVER" : pickedUp ? "PICKED UP" : S.strokes === 1 ? "HOLE IN ONE!" : "IN THE HOLE!";
+  $("endScore").textContent = last ? `${total} SHOTS · ${vsPar(total - par)}` : pickedUp ? `${S.strokes} SHOTS` : `${S.strokes} · ${NAMES[diff] ?? "+" + diff}`;
+  // scorecard: hole, par, your score
+  const row = (label, cells, cls = "") => `<tr class="${cls}"><th>${label}</th>${cells.map(c => `<td>${c}</td>`).join("")}</tr>`;
+  const sc = COURSE.holes.map((h, i) => S.scores[i] ?? "");
+  $("card").innerHTML = row("HOLE", COURSE.holes.map(h => h.number).concat("TOT"), "hd") + row("PAR", COURSE.holes.map(h => h.par).concat(COURSE.par)) +
+    row("YOU", sc.map((v, i) => v === "" ? "" : `<span class="${v < COURSE.holes[i].par ? "under" : v > COURSE.holes[i].par ? "over" : ""}">${v}</span>`).concat(total), "you");
+  $("againBtn").textContent = last ? "PLAY AGAIN" : `HOLE ${hole.number + 1} →`;
+  save(last ? null : { next: S.holeIdx + 1, scores: S.scores });
   setTimeout(() => { $("end").hidden = false; }, 900);
 }
 
@@ -151,7 +178,8 @@ function frame(now) {
         const ev = step(b, 1 / 240, terrain, S.wind, trees, hole.pin, rand);
         if (ev === "tree") say("TIMBER!", 1);
         if (ev === "lip") say("LIPPED OUT!", 1.4);
-        if (b.x < -140 || b.x > 440 || b.y < -140 || b.y > 540) { b.state = "stop"; b.x = clamp(b.x, -140, 440); b.y = clamp(b.y, -140, 540); b.h = ground(); }
+        const wd = COURSE.world;
+        if (b.x < wd.x0 - 60 || b.x > wd.x1 + 60 || b.y < wd.y0 - 60 || b.y > wd.y1 + 60) { b.state = "stop"; b.x = clamp(b.x, wd.x0 - 60, wd.x1 + 60); b.y = clamp(b.y, wd.y0 - 60, wd.y1 + 60); b.h = ground(); }
         if (b.state === "stop" || b.state === "holed") break;
       }
     } else if ((S.stopT += dt) > 0.9) finishShot();
@@ -166,16 +194,18 @@ function frame(now) {
       const d = targetDist(); renderer.drawTarget(S.ball.x + Math.sin(S.heading) * d, S.ball.y - Math.cos(S.heading) * d);
     }
     if (toPin() < 30 || club().putter) renderer.drawSlopeFlow(now / 1000);
-    renderer.drawCup();
+    for (const f of COURSE.fences) renderer.drawFence(f);
+    renderer.drawSign(COURSE.cliff.sign);
+    for (const h of COURSE.holes) renderer.drawCup(h);
     if (S.mode === "putt" && !S.look) renderer.drawPath(S.gesture?.putt && S.gesture.power > 0.01 ? S.path || [] : straightLine(3));
-    renderer.drawFlag(S.wind, now / 1000);
+    for (const h of COURSE.holes) renderer.drawFlag(S.wind, now / 1000, h);
     renderer.drawBall(S.ball, ground(), S.mode === "flight");
     renderer.end();
     const bp = ready() && !S.look ? renderer.project(S.ball.x, S.ball.y, S.ball.h) : null;
     lastBall = bp && bp.z > 0 ? { x: bp.sx, y: bp.sy } : null;
     drawHUD(renderer.ctx, {
       hole, ball: S.ball, heading: S.heading, shot: S.mode === "flight" || S.mode === "done" ? S.strokes : S.strokes + 1,
-      toPin: toPin(), onGreen: onGreen(), windDir: S.windDir, windKmh: S.windKmh, minimap: terrain.minimap,
+      toPin: toPin(), onGreen: onGreen(), windDir: S.windDir, windKmh: S.windKmh, minimap: terrain.minimaps[S.holeIdx], total: S.scores.reduce((a, b) => a + b, 0) - COURSE.holes.slice(0, S.scores.length).reduce((a, h) => a + h.par, 0), played: S.scores.length,
       aimDist: Math.min(targetDist(), 400), club: club(), look: S.look, msg: S.msg, safe, time: now / 1000,
       target: ready() && !club().putter ? `${Math.round(targetDist())}M` : "",
       ballScreen: bp && bp.z > 0 ? { x: bp.sx, y: bp.sy } : null, ballR: BALL_R, ready: ready() && !S.look,
@@ -320,12 +350,46 @@ addEventListener("keyup", e => {
   if (e.code === "Space" && keys.charge) { keys.charge = 0; const g = S.gesture; S.gesture = null; if (g?.key && g.power > 0.02 && ready()) hit(g.power, 0); }
 });
 
-function start() { if (pendingReload) return location.reload(); $("title").hidden = true; $("end").hidden = true; reset(); }
+// Remember a round in progress, so closing the app between holes doesn't lose it
+function save(v) { try { v ? localStorage.setItem("rp-round", JSON.stringify(v)) : localStorage.removeItem("rp-round"); } catch {} }
+function saved() { try { const v = JSON.parse(localStorage.getItem("rp-round")); return v && v.next > 0 && v.next < COURSE.holes.length ? v : null; } catch { return null; } }
+function resume() {
+  const v = saved(); if (!v) return start();
+  if (pendingReload) return location.reload();
+  $("title").hidden = true; $("end").hidden = true; S.scores = v.scores.slice(0, v.next); startHole(v.next);
+}
+{ const v = saved(); if (v) { $("resumeBtn").hidden = false; $("resumeBtn").textContent = `CONTINUE · HOLE ${v.next + 1}`; } }
+$("resumeBtn").onclick = resume;
+
+function start() { if (pendingReload) return location.reload(); save(null); $("title").hidden = true; $("end").hidden = true; startRound(); }
+function next() {
+  if (pendingReload) return location.reload();
+  if (S.practice) return practise((S.holeIdx + 1) % COURSE.holes.length);
+  if (S.holeIdx >= COURSE.holes.length - 1) return start();
+  $("end").hidden = true; startHole(S.holeIdx + 1);
+}
+// Practice: play any single hole on its own, without touching a round in progress
+function practise(i) {
+  if (pendingReload) return location.replace(`?hole=${i + 1}`);
+  S.practice = true; $("title").hidden = true; $("end").hidden = true; startHole(i);
+}
+function menu() {
+  $("end").hidden = true; $("title").hidden = false; S.mode = "title";
+  const v = saved(); $("resumeBtn").hidden = !v; if (v) $("resumeBtn").textContent = `CONTINUE · HOLE ${v.next + 1}`;
+}
+for (const h of COURSE.holes) {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = h.number;
+  b.setAttribute("aria-label", `Practise hole ${h.number}, par ${h.par}`); b.onclick = () => practise(h.number - 1);
+  $("holePick").appendChild(b);
+}
+$("replayBtn").onclick = () => practise(S.holeIdx);
+$("menuBtn").onclick = menu;
 $("startBtn").onclick = start;
-$("againBtn").onclick = start;
+$("startBtn").textContent = "TEE OFF · 9 HOLES"; $("startBtn").disabled = false;
+$("againBtn").onclick = next;
 
 // draw a first frame behind the title card
-reset(); S.mode = "title";
+startHole(0); S.msg = ""; S.mode = "title";
 renderer.render(camera()); renderer.begin(); renderer.end();
 requestAnimationFrame(frame);
 
@@ -342,9 +406,12 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (!hadController) return;
-    if (S.mode === "title" || S.mode === "done") location.reload(); else pendingReload = true;
+    if (S.mode === "title") location.reload(); else pendingReload = true;
   });
 }
 
+// ?hole=N jumps straight into practising that hole
+{ const n = parseInt(new URLSearchParams(location.search).get("hole"), 10); if (n >= 1 && n <= COURSE.holes.length) practise(n - 1); }
+
 // handle for automated checks
-window.__golf = { S, hit, terrain, hole, CLUBS, setupShot, ballCss: () => { const r = canvas.getBoundingClientRect(); return lastBall && { x: r.left + lastBall.x * r.width / W, y: r.top + lastBall.y * r.height / H }; } };
+window.__golf = { S, hit, terrain, get hole() { return hole; }, COURSE, startHole, endHole, CLUBS, setupShot, ballCss: () => { const r = canvas.getBoundingClientRect(); return lastBall && { x: r.left + lastBall.x * r.width / W, y: r.top + lastBall.y * r.height / H }; } };
