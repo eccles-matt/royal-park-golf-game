@@ -1,7 +1,7 @@
 import { HOLE3 } from "./course.js";
 import { buildTerrain, SURF, SURF_NAME } from "./terrain.js";
 import { buildSprites } from "./sprites.js";
-import { Renderer, F } from "./render.js";
+import { Renderer, F, H, HZ, setHeight } from "./render.js";
 import { drawHUD, METER_MIN, MAP, CLUB_BOX } from "./hud.js";
 import { CLUBS, launch, step, treeGrid, LIE_POWER } from "./physics.js";
 import { rng, clamp } from "./util.js";
@@ -12,7 +12,18 @@ const canvas = $("game");
 
 const terrain = buildTerrain(hole);
 const sprites = buildSprites();
+// Fit the view to the screen: taller on portrait phones so the hole fills the space above the controls
+function fitHeight() {
+  const portrait = innerHeight > innerWidth && innerHeight > 600;
+  const w = Math.min(innerWidth - 16, 520), avail = innerHeight - 175;
+  const h = portrait ? clamp(Math.round(288 * avail / w / 2) * 2, 216, 384) : 216;
+  setHeight(h);
+  const screen = $("screen"); screen.style.setProperty("--ar", `288 / ${h}`); screen.style.setProperty("--arw", `${288 / h}`);
+  return h;
+}
+fitHeight();
 const renderer = new Renderer(canvas, terrain, hole, sprites);
+addEventListener("resize", () => { const old = H; if (fitHeight() !== old) { renderer.resize(); S.dirty = true; lastCam = ""; } });
 const trees = treeGrid(terrain.trees);
 
 const PUTT_MU_G = 0.065 * 9.8;
@@ -42,7 +53,7 @@ function reset() {
 }
 
 function setupShot(first) {
-  S.look = false; S.meter = { phase: 0, m: 0, power: 0 }; S.putt = null;
+  S.look = false; S.meter = { phase: 0, m: 0, power: 0 }; S.putt = null; S.targetD = null; S.path = null;
   const d = toPin();
   if (onGreen()) { S.club = putter(); S.mode = "putt"; }
   else {
@@ -61,10 +72,10 @@ function setupShot(first) {
 function camera() {
   const b = S.ball, fw = [Math.sin(S.heading), -Math.cos(S.heading)];
   if (S.look) {
-    const L = Math.max(25, Math.min(aimDist(), toPin()) - 35), x = b.x + fw[0] * L, y = b.y + fw[1] * L;
+    const L = Math.max(25, targetDist() - 35), x = b.x + fw[0] * L, y = b.y + fw[1] * L;
     return { x, y, h: terrain.heightAt(x, y) + 20, heading: S.heading };
   }
-  const putting = club().putter, back = putting ? 4.5 : 9, eye = putting ? 1.5 : 3.2;
+  const putting = club().putter, eye = putting ? 1.5 : 3.2, back = eye * F / (H * 0.8 - HZ); // ball sits 80% down the view
   const x = b.x - fw[0] * back, y = b.y - fw[1] * back;
   return { x, y, h: Math.max(terrain.heightAt(x, y), b.h) + eye, heading: S.heading };
 }
@@ -74,6 +85,12 @@ function aimDist() {
   if (c.putter) return toPin();
   let mul = LIE_POWER[lie()] ?? 1; if (lie() === SURF.BUNKER && c.name === "S WEDGE") mul = 0.85;
   return c.carry * mul;
+}
+// Where this shot is aimed to land: the pin if it's in reach, otherwise full carry. Drag up/down to change it.
+function targetDist() {
+  if (club().putter) return toPin();
+  const reach = aimDist();
+  return clamp(S.targetD ?? Math.min(reach, toPin()), Math.min(10, reach), reach);
 }
 
 function say(msg, t = 1.6) { S.msg = msg; S.msgT = t; }
@@ -155,15 +172,21 @@ function frame(now) {
     if (S.dirty || S.mode !== "flight") { if (S.dirty || camKey(cam) !== lastCam) { renderer.render(cam); lastCam = camKey(cam); } S.dirty = false; }
     renderer.begin();
     if (S.mode === "aim" && !S.look && !club().putter) {
-      const d = aimDist(); renderer.drawTarget(S.ball.x + Math.sin(S.heading) * d, S.ball.y - Math.cos(S.heading) * d);
+      const d = targetDist(); renderer.drawTarget(S.ball.x + Math.sin(S.heading) * d, S.ball.y - Math.cos(S.heading) * d);
     }
-    if (club().putter && S.mode !== "flight" && toPin() < 25) renderer.drawSlopes(S.ball);
+    if (toPin() < 30 || club().putter) renderer.drawSlopeFlow(now / 1000);
+    renderer.drawCup();
+    if (S.mode === "putt" && !S.look) {
+      const pw = S.putt ? S.putt.power : 0;
+      if (pw > 0.02) { if (!S.path || S.path.power !== pw || S.path.heading !== S.heading) S.path = { power: pw, heading: S.heading, pts: predictPutt(pw) }; renderer.drawPath(S.path.pts); }
+      else renderer.drawPath(straightLine(3));
+    }
     renderer.drawBall(S.ball, ground(), S.mode === "flight");
     renderer.end();
     drawHUD(renderer.ctx, {
       hole, ball: S.ball, heading: S.heading, shot: S.mode === "flight" || S.mode === "done" ? S.strokes : S.strokes + 1,
       toPin: toPin(), onGreen: onGreen(), windDir: S.windDir, windKmh: S.windKmh, minimap: terrain.minimap,
-      aimDist: Math.min(aimDist(), 400), club: club(), look: S.look, msg: S.msg,
+      aimDist: Math.min(targetDist(), 400), club: club(), look: S.look, msg: S.msg,
       meter: meterView()
     });
   }
@@ -175,9 +198,25 @@ const camKey = c => `${c.x.toFixed(3)},${c.y.toFixed(3)},${c.h.toFixed(3)},${c.h
 function meterView() {
   const M = S.meter;
   if (S.putt) return { fill: S.putt.power, marker: null, label: `${Math.round(puttDist(S.putt.power))}M` };
-  if (M.phase === 0) return { fill: 0, marker: null, label: "" };
-  if (M.phase === 1) return { fill: M.m, marker: M.m, label: "" };
-  return { fill: M.power, marker: M.m, label: "" };
+  const putt = club().putter, notch = putt ? null : targetDist() / aimDist(), label = putt ? "" : `${Math.round(targetDist())}M`;
+  if (M.phase === 0) return { fill: 0, marker: null, label, notch };
+  if (M.phase === 1) return { fill: M.m, marker: M.m, label, notch };
+  return { fill: M.power, marker: M.m, label, notch };
+}
+
+function predictPutt(power) {
+  const b = { x: S.ball.x, y: S.ball.y, h: S.ball.h, state: "stop" }, pts = [], still = () => 0.5;
+  launch(b, CLUBS[putter()], power, 0, S.heading, terrain, still);
+  for (let i = 0; i < 4800; i++) {
+    step(b, 1 / 240, terrain, S.wind, trees, hole.pin, still);
+    if (i % 14 === 0) pts.push([b.x, b.y, b.h]);
+    if (b.state !== "roll") { pts.push([b.x, b.y, b.h]); break; }
+  }
+  return pts;
+}
+function straightLine(len) {
+  const pts = []; for (let d = 0.3; d <= len; d += 0.25) { const x = S.ball.x + Math.sin(S.heading) * d, y = S.ball.y - Math.cos(S.heading) * d; pts.push([x, y, terrain.heightAt(x, y)]); }
+  return pts;
 }
 const puttDist = p => (CLUBS[putter()].maxSpeed * p) ** 2 / (2 * PUTT_MU_G);
 
@@ -194,7 +233,7 @@ function updateControls() {
 
 function changeClub(d) {
   if (S.mode === "flight" || S.meter.phase > 0) return;
-  S.club = (S.club + d + CLUBS.length) % CLUBS.length;
+  S.club = (S.club + d + CLUBS.length) % CLUBS.length; S.targetD = null;
   if (S.mode === "putt" && !club().putter) S.mode = "aim";
   else if (S.mode === "aim" && club().putter && onGreen()) S.mode = "putt";
   S.dirty = true; updateControls();
@@ -204,16 +243,25 @@ function toggleLook() { if (S.mode !== "aim" && S.mode !== "putt") return; if (S
 $("prev").onclick = () => changeClub(-1);
 $("next").onclick = () => changeClub(1);
 $("look").onclick = toggleLook;
-$("swing").addEventListener("pointerdown", e => { e.preventDefault(); swingTap(); });
+// Swing taps fire on touch-down. touchstart + preventDefault stops mobile browsers swallowing quick
+// repeated taps as a double-tap gesture; mouse users get mousedown.
+const swingBtn = $("swing");
+swingBtn.addEventListener("touchstart", e => { e.preventDefault(); swingTap(); }, { passive: false });
+swingBtn.addEventListener("mousedown", e => { e.preventDefault(); swingTap(); });
 
 // aim by dragging the view
 let drag = null;
-canvas.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, moved: 0, axis: null }; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener("pointermove", e => {
   if (!drag) return;
-  const r = canvas.getBoundingClientRect(), dx = (e.clientX - drag.x) * canvas.width / r.width;
-  drag.moved += Math.abs(e.clientX - drag.x); drag.x = e.clientX;
-  if ((S.mode === "aim" || S.mode === "putt") && S.meter.phase === 0) { S.heading -= dx / F * (club().putter ? 0.5 : 1); S.dirty = true; }
+  const r = canvas.getBoundingClientRect(), dx = (e.clientX - drag.x) * canvas.width / r.width, dy = (e.clientY - drag.y) * canvas.height / r.height;
+  drag.moved += Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y); drag.x = e.clientX; drag.y = e.clientY;
+  if (!drag.axis && drag.moved > 6) drag.axis = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+  if ((S.mode === "aim" || S.mode === "putt") && S.meter.phase === 0) {
+    if (drag.axis === "x") { S.heading -= dx / F * (club().putter ? 0.5 : 1); S.dirty = true; }
+    // drag up to aim further, down to aim shorter (for ¾ and ½ shots)
+    if (drag.axis === "y" && !club().putter) { S.targetD = clamp(targetDist() - dy * 0.8, 5, aimDist()); if (S.look) S.dirty = true; }
+  }
 });
 canvas.addEventListener("pointerup", e => {
   if (drag && drag.moved < 6) {
@@ -239,6 +287,8 @@ addEventListener("keydown", e => {
   if (e.code === "KeyQ") changeClub(-1);
   if (e.code === "KeyE") changeClub(1);
   if (e.code === "KeyM") toggleLook();
+  if (e.code === "ArrowUp" && !club().putter) S.targetD = clamp(targetDist() + 5, 5, aimDist());
+  if (e.code === "ArrowDown" && !club().putter) S.targetD = clamp(targetDist() - 5, 5, aimDist());
 });
 addEventListener("keyup", e => { if (e.code === "ArrowLeft") keys.left = 0; if (e.code === "ArrowRight") keys.right = 0; });
 

@@ -1,5 +1,5 @@
 // Offline support: cache the whole game on first visit, serve from cache, refresh in the background.
-const VERSION = "rp-v1";
+const VERSION = "rp-v2";
 const FILES = [
   "./", "index.html", "styles.css", "manifest.webmanifest",
   "fonts/press-start-2p.woff2",

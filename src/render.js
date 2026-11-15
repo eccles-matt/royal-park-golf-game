@@ -4,24 +4,31 @@ import { THEME, hex, lerp3 } from "./theme.js";
 import { pack, clamp, BAYER, rng } from "./util.js";
 import { SURF } from "./terrain.js";
 
-export const W = 288, H = 216, HZ = 78, F = W * 0.95, CX = W / 2;
+export const W = 288, F = W * 0.95, CX = W / 2;
+// Height adapts to the screen: 216 (4:3) on landscape screens, up to 384 tall on portrait phones.
+export let H = 216, HZ = 78;
+export function setHeight(h) { H = h; HZ = Math.round(78 + (h - 216) * 0.35); }
 const ZF = 620;
 
 export class Renderer {
   constructor(canvas, terrain, hole, sprites) {
-    this.canvas = canvas; canvas.width = W; canvas.height = H;
-    this.ctx = canvas.getContext("2d");
+    this.canvas = canvas; this.ctx = canvas.getContext("2d");
     this.t = terrain; this.hole = hole; this.sprites = sprites;
-    this.img = this.ctx.createImageData(W, H);
-    this.buf = new Uint32Array(this.img.data.buffer);
-    this.depth = new Float32Array(W * H);
-    this.baseBuf = new Uint32Array(W * H);
-    this.baseDepth = new Float32Array(W * H);
     this.haze = hex(THEME.haze);
     const far = lerp3(hex(THEME.rough), this.haze, 0.82);
     this.farCol = pack(far[0], far[1], far[2]);
     for (const tr of terrain.trees) tr.baseH = terrain.heightAt(tr.x, tr.y);
     this.pinH = terrain.heightAt(hole.pin.x, hole.pin.y);
+    this.resize();
+  }
+
+  resize() {
+    const c = this.canvas; c.width = W; c.height = H;
+    this.img = this.ctx.createImageData(W, H);
+    this.buf = new Uint32Array(this.img.data.buffer);
+    this.depth = new Float32Array(W * H);
+    this.baseBuf = new Uint32Array(W * H);
+    this.baseDepth = new Float32Array(W * H);
     this.buildSky();
   }
 
@@ -145,7 +152,7 @@ export class Renderer {
     }
     const p = this.project(ball.x, ball.y, ball.h + 0.05);
     if (p.z < 0.5) return;
-    const r = clamp(0.3 * p.s, 0.6, 5);
+    const r = clamp(0.07 * p.s, 0.8, 5); // a little larger than life (0.021m) so it reads, but in proportion to the cup
     for (let y = Math.floor(p.sy - r); y <= Math.ceil(p.sy + r); y++) for (let x = Math.floor(p.sx - r); x <= Math.ceil(p.sx + r); x++)
       if ((x - p.sx) ** 2 + (y - p.sy) ** 2 <= r * r + 0.3) this.plot(x, y, white, p.z - 1.5);
     if (showMarker && r < 2) {
@@ -154,24 +161,53 @@ export class Renderer {
     }
   }
 
+  // Landing marker: a ring on the ground with a small red-and-white pole
   drawTarget(x, y) {
     const h = this.t.heightAt(x, y), p = this.project(x, y, h);
     if (p.z < 2) return;
-    const c = pack(255, 255, 255), rx = Math.max(2, 3 * p.s), ry = Math.max(1, rx * 0.35);
-    for (let a = 0; a < 6.28; a += 0.25) this.plot(p.sx + Math.cos(a) * rx, p.sy + Math.sin(a) * ry, c, p.z - 2);
+    const white = pack(255, 255, 255), red = pack(...hex(THEME.ui.flag)), dark = pack(...hex(THEME.ui.border));
+    const rx = Math.max(3, 4 * p.s), ry = Math.max(1.5, rx * Math.min(0.5, (this.cam.h - h) / p.z));
+    for (let a = 0; a < 6.28; a += 0.12) {
+      this.plot(p.sx + Math.cos(a) * rx, p.sy + Math.sin(a) * ry + 1, dark, p.z - 3);
+      this.plot(p.sx + Math.cos(a) * rx, p.sy + Math.sin(a) * ry, white, p.z - 3);
+    }
+    const ph = Math.max(7, 3 * p.s);
+    for (let i = 0; i < ph; i++) this.plot(p.sx, p.sy - i, (Math.floor(i / 2) % 2) ? white : red);
   }
 
-  // Slope arrows on and around the green, pointing downhill
-  drawSlopes(ball) {
-    const t = this.t, c = pack(...hex(THEME.ui.border)), tip = pack(255, 255, 255), pin = this.hole.pin;
-    for (let gy = -16; gy <= 16; gy += 2) for (let gx = -16; gx <= 16; gx += 2) {
-      const x = pin.x + gx, y = pin.y + gy, s = t.surfaceAt(x, y);
-      if (s !== SURF.GREEN && s !== SURF.FRINGE) continue;
-      const [ax, ay] = t.gradAt(x, y), m = Math.hypot(ax, ay); if (m < 0.004) continue;
-      const len = Math.min(1.2, m * 30), ex = x - ax / m * len, ey = y - ay / m * len;
-      const a = this.project(x, y, t.heightAt(x, y) + 0.02), b = this.project(ex, ey, t.heightAt(ex, ey) + 0.02);
-      if (a.z < 1 || b.z < 1) continue;
-      this.line(a.sx, a.sy, b.sx, b.sy, c, a.z - 0.6); this.plot(b.sx, b.sy, tip, b.z - 0.6);
+  drawCup() {
+    const pin = this.hole.pin, p = this.project(pin.x, pin.y, this.pinH);
+    if (p.z < 0.5) return;
+    const rx = Math.max(0.7, 0.16 * p.s), ry = Math.max(0.5, rx * Math.min(0.6, (this.cam.h - this.pinH) / p.z)), c = pack(36, 40, 28);
+    for (let y = Math.floor(p.sy - ry); y <= Math.ceil(p.sy + ry); y++) for (let x = Math.floor(p.sx - rx); x <= Math.ceil(p.sx + rx); x++)
+      if (((x - p.sx) / rx) ** 2 + ((y - p.sy) / ry) ** 2 <= 1.1) this.plot(x, y, c, p.z - 0.5);
+  }
+
+  // Predicted putt: white dots with a dark edge so they read on the green
+  drawPath(pts) {
+    const white = pack(255, 255, 255), dark = pack(...hex(THEME.ui.border));
+    pts.forEach(([x, y, h], i) => {
+      const p = this.project(x, y, h + 0.01); if (p.z < 0.8) return;
+      const s = p.s > 40 ? 2 : 1;
+      for (let a = 0; a < s; a++) { this.plot(p.sx + a, p.sy + s, dark, p.z - 0.5); for (let b = 0; b < s; b++) this.plot(p.sx + a, p.sy + b, white, p.z - 0.5); }
+    });
+  }
+
+  // Slopes: little specks of light that drift downhill across the green, faster where it's steeper
+  drawSlopeFlow(time) {
+    const t = this.t, pin = this.hole.pin, c = pack(...hex(THEME.ui.border)), c2 = pack(126, 150, 84);
+    for (let gy = -15; gy <= 15; gy += 1.5) for (let gx = -15; gx <= 15; gx += 1.5) {
+      const x0 = pin.x + gx, y0 = pin.y + gy;
+      if (t.surfaceAt(x0, y0) !== SURF.GREEN) continue;
+      const [ax, ay] = t.gradAt(x0, y0), m = Math.hypot(ax, ay); if (m < 0.004) continue;
+      const seed = Math.abs(Math.sin(gx * 12.9898 + gy * 78.233)) % 1, k = (time * (0.25 + m * 12) + seed) % 1;
+      const x = x0 - ax / m * k * 1.4, y = y0 - ay / m * k * 1.4;
+      if (t.surfaceAt(x, y) !== SURF.GREEN) continue;
+      const p = this.project(x, y, t.heightAt(x, y) + 0.01); if (p.z < 0.8) continue;
+      // a short dark streak with a softer tail, pointing downhill
+      const q = this.project(x + ax / m * 0.25, y + ay / m * 0.25, t.heightAt(x, y) + 0.01);
+      this.plot(p.sx, p.sy, c, p.z - 0.5);
+      if (q.z > 0.8) this.plot(q.sx, q.sy, c2, q.z - 0.5);
     }
   }
 }
