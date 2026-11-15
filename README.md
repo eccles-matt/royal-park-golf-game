@@ -8,11 +8,11 @@ A pixel-art golf game set on Royal Park Golf Course in Melbourne. It's a web app
 
 The game fills the whole screen.
 
-- **Aim:** touch anywhere above the ball and drag left or right. The hole map in the corner shows your line. Tap the map (LOOK) to look down the hole.
-- **Distance:** the ring and pole show where the shot lands at full power, or at the pin if it's in reach. Drag up or down above the ball to move it. The red line on the power gauge marks the power that lands there, so you can play a ¾ or ½ shot.
-- **Swing:** put your finger on or below the ball and pull back (down) to set power, then flick up quickly. Letting go without a flick does nothing. Flicking straight up hits it straight. Flicking up and to the left hooks it, and up and to the right slices it.
+- **Aim:** touch anywhere except the ball and drag left or right. The hole map in the corner shows your line. Tap the map (LOOK) to look down the hole.
+- **Distance:** the ring and pole show where the shot lands at full power, or at the pin if it's in reach. Drag up or down away from the ball to move it. The red line on the power gauge marks the power that lands there, so you can play a ¾ or ½ shot.
+- **Swing:** put your finger on the ball (the dotted ring) and pull back to set power, then flick up quickly. Touches that miss the ball only aim. Letting go without a flick does nothing. Flicking straight up hits it straight. Flick up and to the left to hook it left, and up and to the right to slice it right. The wider the angle, the bigger the curve.
 - **Clubs:** the game picks one for the distance. Tap the arrows on the club card to change it.
-- **Putting:** just flick up from the ball. The faster the flick, the harder the putt. The light streaks drifting across the green show which way it slopes.
+- **Putting:** touch the ball and flick towards the hole. The faster the flick, the harder the putt. The light streaks drifting across the green show which way it slopes.
 - **Keyboard:** hold Space to build power and release to hit. Left/right aim, up/down set the distance, Q/E change clubs, and M looks ahead.
 
 ## Running it locally
