@@ -43,7 +43,7 @@ Then open http://localhost:8000.
 | `src/theme.js` | The golden-hour palette |
 | `sw.js` | Offline support. Network first, cache as fallback, so installed copies pick up new deploys on their next launch |
 
-Units are metres. x runs east and y runs south, with north up as on the course map (so the city skyline sits to the south). All nine holes share one world, so you can see the neighbouring holes and their flags. The map draws the 6th shorter than its 145 yards, so that hole is stretched in `src/course.js`.
+Units are metres. x runs east and y runs south, with north up as on the course map (so the city skyline sits to the south). All nine holes share one world, so you can see the neighbouring holes and their flags. The map draws the 6th shorter than its 145 yards, so that hole is stretched in `src/course.js`. The railway (in a cutting, fenced along the top, with the CLIFF EDGE sign behind the 2nd green) and the tram line split the park into three parts, each closed off by a belt of gums, so from a hole you only see your own part's holes and flags. A route 58 tram comes up or down the tram line every minute or so.
 
 ## Credits
 

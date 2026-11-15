@@ -1,14 +1,29 @@
 // Builds the height grid, surface grid and colour grid for the whole course (all nine holes share one world).
 import { THEME, hex } from "./theme.js";
-import { makeHeightFn, makeTrees, pastCliff, smoothPath, distToLine } from "./course.js";
+import { makeHeightFn, makeTrees, inCutting, smoothPath, distToLine } from "./course.js";
 import { pack, clamp } from "./util.js";
 
 export const SURF = { ROUGH: 0, FAIRWAY: 1, FRINGE: 2, GREEN: 3, BUNKER: 4, TEE: 5, ROAD: 6 };
-export const SURF_NAME = ["ROUGH", "FAIRWAY", "FRINGE", "GREEN", "BUNKER", "TEE", "ROAD"];
+export const SURF_NAME = ["ROUGH", "FAIRWAY", "FRINGE", "GREEN", "BUNKER", "TEE", "TRACKS"];
 
 // mask is the traced course map (see tools/trace_map.py): one class per pixel, stored as class * 30
 const CLASS_SURF = [SURF.ROUGH, SURF.ROUGH, SURF.FAIRWAY, SURF.FRINGE, SURF.GREEN, SURF.BUNKER, SURF.ROAD, SURF.TEE];
 const PARK = 0, LIGHT_ROUGH = 1, COLLAR = 3, GREEN = 4, TEE = 7;
+
+// A polyline with running lengths, for finding the nearest point, how far along it is, and which side
+function withLengths(pts) {
+  const len = [0]; for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, len, yAt(x) { for (let i = 0; i < pts.length - 1; i++) if (x >= pts[i][0] && x <= pts[i + 1][0]) return pts[i][1] + (pts[i + 1][1] - pts[i][1]) * (x - pts[i][0]) / (pts[i + 1][0] - pts[i][0]); return pts[x < pts[0][0] ? 0 : pts.length - 1][1]; } };
+}
+function nearest(L, x, y) {
+  let best = 1e18, out = null;
+  for (let i = 0; i < L.pts.length - 1; i++) {
+    const [ax, ay] = L.pts[i], [bx, by] = L.pts[i + 1], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), ex = ax + dx * t - x, ey = ay + dy * t - y, d2 = ex * ex + ey * ey;
+    if (d2 < best) { best = d2; const l = Math.sqrt(l2); out = { along: L.len[i] + t * l, off: ((x - ax) * -dy + (y - ay) * dx) / l }; }
+  }
+  out.d = Math.sqrt(best); return out;
+}
 
 export function buildTerrain(course, mask) {
   const w = course.world, M = 70, RES = 2, X0 = w.x0 - M, Y0 = w.y0 - M;
@@ -67,17 +82,39 @@ export function buildTerrain(course, mask) {
       if (u * u + v * v < 1) shadow[gy * GW + gx] = 0.8;
     }
   }
+  // railway and tram tracks: ballast, sleepers and two steel rails per track
+  const trainLine = withLengths(smoothPath(course.train)), tramLine = withLengths(smoothPath(course.tram)), cut = course.cut;
+  const sleeper = C.sleeper, rail = C.rail, ballast = C.ballast;
+  const trackCol = (off, along, gauge) => {
+    const a = Math.abs(off);
+    if (Math.abs(a - gauge / 2) < 0.2) return rail;
+    if (a < gauge / 2 + 0.6 && along % 0.7 < 0.3) return sleeper;
+    return null;
+  };
   for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
     const i = gy * GW + gx, x = X0 + gx / RES, y = Y0 + gy / RES, s = surf[i];
     let base;
+    // in the railway cutting: two tracks on ballast, clay walls with scrubby grass
+    if (x > course.cutFrom - 4 && Math.abs(y - trainLine.yAt(x)) < cut.top + 12) {
+      const n = nearest(trainLine, x, y);
+      if (n.d < cut.top) {
+        if (n.d < cut.floor) {
+          base = trackCol(n.off - 1.9, n.along, 1.435) || trackCol(n.off + 1.9, n.along, 1.435) || ballast;
+        } else base = ((x * 3.1 + y * 1.7) | 0) % 5 === 0 ? C.parkDark : C.clay;
+        surf[i] = SURF.ROAD;
+      }
+    }
+    if (surf[i] === SURF.ROAD && base === undefined) {
+      const n = nearest(tramLine, x, y);
+      base = n.d < 2.2 ? (trackCol(n.off, n.along, 1.435) || ballast) : C.roughDark;
+    }
+    if (base !== undefined) {} else
     if (s === SURF.FAIRWAY || s === SURF.TEE) base = Math.floor(y / 7) % 2 ? C.stripe : C.fairway;
     else if (s === SURF.FRINGE) base = C.fringe;
     else if (s === SURF.GREEN) base = Math.floor((y - x * 0.35) / 2.5) % 2 ? C.greenStripe : C.green;
     else if (s === SURF.BUNKER) {
       const edge = surf[i - 1] !== s || surf[i + 1] !== s || surf[i - GW] !== s || surf[i + GW] !== s;
       base = edge ? C.sandEdge : C.sand;
-    } else if (s === SURF.ROAD) {
-      base = C.road;
     } else {
       // light rough down the holes, patchier parkland grass under the trees
       const n = Math.sin(x * 0.21 + Math.sin(y * 0.13)) + Math.sin(y * 0.17 + Math.cos(x * 0.11)) + Math.sin((x + y) * 0.53) * 0.4;
@@ -110,11 +147,11 @@ export function buildTerrain(course, mask) {
     heightAt: hf,
     surfaceAt(x, y) { const i = idx(x, y); return i < 0 ? SURF.ROUGH : surf[i]; },
     gradAt(x, y) { const e = 0.25; return [(hf(x + e, y) - hf(x - e, y)) / (2 * e), (hf(x, y + e) - hf(x, y - e)) / (2 * e)]; },
-    // out of bounds: off the edge of the park, on a road, or over the cliff on the 2nd
+    // out of bounds: off the edge of the park, on the tram tracks, or over the fence into the railway cutting
     inPlay(x, y) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) return false;
       const i = idx(x, y); if (i >= 0 && surf[i] === SURF.ROAD) return false;
-      return !pastCliff(course, x, y);
+      return !inCutting(course, x, y);
     }
   };
 }
