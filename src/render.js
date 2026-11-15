@@ -1,13 +1,14 @@
 // Software renderer: heightmap "voxel" terrain marched per screen column, depth-tested tree sprites,
-// then a ball and markers on top. Everything is drawn at 288x216 and scaled up with nearest-neighbour.
+// then a ball and markers on top. Drawn at low resolution and scaled up with nearest-neighbour.
 import { THEME, hex, lerp3 } from "./theme.js";
 import { pack, clamp, BAYER, rng } from "./util.js";
 import { SURF } from "./terrain.js";
 
-export const W = 288, F = W * 0.95, CX = W / 2;
-// Height adapts to the screen: 216 (4:3) on landscape screens, up to 384 tall on portrait phones.
-export let H = 216, HZ = 78;
-export function setHeight(h) { H = h; HZ = Math.round(78 + (h - 216) * 0.35); }
+// The view fills the screen. The short side is 288 (portrait) or 216 (landscape) pixels and the long side
+// follows the screen's shape. Focal length is fixed, so a wider screen simply sees more.
+export const F = 288 * 0.95;
+export let W = 288, H = 216, HZ = 78, CX = 144;
+export function setSize(w, h) { W = w; H = h; CX = w / 2; HZ = Math.round(h * 0.36); }
 const ZF = 620;
 
 export class Renderer {
@@ -33,8 +34,7 @@ export class Renderer {
   }
 
   buildSky() {
-    const fov = 2 * Math.atan(CX / F);
-    const PW = this.PW = Math.round(W * 2 * Math.PI / fov), cv = document.createElement("canvas");
+    const PW = this.PW = Math.round(2 * Math.PI * F), cv = document.createElement("canvas");
     cv.width = PW; cv.height = HZ;
     const c = cv.getContext("2d"), id = c.createImageData(PW, HZ), d32 = new Uint32Array(id.data.buffer);
     const s = THEME.sky.map(hex), LEVELS = 12;
@@ -195,7 +195,7 @@ export class Renderer {
 
   // Slopes: little specks of light that drift downhill across the green, faster where it's steeper
   drawSlopeFlow(time) {
-    const t = this.t, pin = this.hole.pin, c = pack(...hex(THEME.ui.border)), c2 = pack(126, 150, 84);
+    const t = this.t, pin = this.hole.pin, c = pack(250, 244, 222), c2 = pack(222, 236, 176); // light streaks: stand out on the green without looking like dirt
     for (let gy = -15; gy <= 15; gy += 1.5) for (let gx = -15; gx <= 15; gx += 1.5) {
       const x0 = pin.x + gx, y0 = pin.y + gy;
       if (t.surfaceAt(x0, y0) !== SURF.GREEN) continue;

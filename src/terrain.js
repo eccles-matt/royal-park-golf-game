@@ -54,7 +54,7 @@ export function buildTerrain(hole) {
     let base;
     if (s === SURF.FAIRWAY || s === SURF.TEE) base = Math.floor(y / 7) % 2 ? C.stripe : C.fairway;
     else if (s === SURF.FRINGE) base = C.fringe;
-    else if (s === SURF.GREEN) base = C.green;
+    else if (s === SURF.GREEN) base = Math.floor((y - x * 0.35) / 2.5) % 2 ? C.greenStripe : C.green;
     else if (s === SURF.BUNKER) {
       const edge = surf[i - 1] !== s || surf[i + 1] !== s || surf[i - GW] !== s || surf[i + GW] !== s;
       base = edge ? C.sandEdge : C.sand;
@@ -68,7 +68,8 @@ export function buildTerrain(hole) {
     const hy = (height[i + (gy < GH - 1 ? GW : 0)] - height[i - (gy > 0 ? GW : 0)]) * RES / 2;
     const nl = Math.hypot(hx, hy, 1);
     let shade = ((-hx * L[0] - hy * L[1] + L[2]) / nl) / L[2];
-    shade = Math.round(clamp(shade, 0.62, 1.3) * 12) / 12 * shadow[i];
+    if (s === SURF.GREEN) shade = 1 + (shade - 1) * 0.35; // keep the putting surface smooth, not banded
+    shade = Math.round(clamp(shade, 0.62, 1.3) * (s === SURF.GREEN ? 24 : 12)) / (s === SURF.GREEN ? 24 : 12) * shadow[i];
     col[i] = pack(Math.min(255, base[0] * shade * 1.02), Math.min(255, base[1] * shade), Math.min(255, base[2] * shade * 0.94));
   }
 

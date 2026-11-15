@@ -51,7 +51,7 @@ export function launch(ball, club, power, acc, heading, terrain, rand) {
   ball.prev = { x: ball.x, y: ball.y, h: ball.h };
   ball.hitTree = null;
   if (club.putter) {
-    const dir = heading + acc * 0.02, sp = club.maxSpeed * power;
+    const dir = heading - (acc / 0.12) * 0.035, sp = club.maxSpeed * power;
     Object.assign(ball, { vx: Math.sin(dir) * sp, vy: -Math.cos(dir) * sp, vh: 0, state: "roll", sx: 0, sy: 0 });
     return;
   }
