@@ -1,6 +1,6 @@
 // Clubhouse-style overlay: cream cards with a green border, pixel font.
 import { THEME } from "./theme.js";
-import { W, H } from "./render.js";
+import { W, H, HZ } from "./render.js";
 
 const U = THEME.ui, FS = 8;
 export const METER_MIN = -0.12;
@@ -12,7 +12,7 @@ function panel(c, x, y, w, h) {
 function text(c, s, x, y, col = U.text) { c.fillStyle = col; c.fillText(s, Math.round(x), Math.round(y)); }
 
 export const MAP = { x: W - 52, y: 6, w: 45, h: 60 };
-export const CLUB_BOX = { x: 6, y: H - 17, w: 70, h: 11 };
+export const CLUB_BOX = { x: 6, get y() { return H - 17; }, w: 70, h: 11 };
 
 export function drawHUD(c, s) {
   c.font = `${FS}px "Press Start 2P", monospace`; c.textBaseline = "top"; c.imageSmoothingEnabled = false;
@@ -24,7 +24,7 @@ export function drawHUD(c, s) {
   text(c, `SHOT ${s.shot}`, 62, 19, U.sub);
 
   // wind
-  panel(c, 6, 33, 56, 11);
+  panel(c, 6, 33, 66, 11);
   text(c, "WIND", 8, 35);
   const rel = s.windDir - s.heading, ax = 47, ay = 38.5;
   c.strokeStyle = U.text; c.lineWidth = 1; c.beginPath();
@@ -65,10 +65,14 @@ export function drawHUD(c, s) {
   }
   c.fillStyle = U.border; c.fillRect(Math.round(toX(0)), my0 - 3, 1, mh + 6);           // accuracy sweet spot
   if (s.meter.marker !== null) { c.fillStyle = "#ffffff"; c.fillRect(Math.round(toX(s.meter.marker)) - 1, my0 - 2, 2, mh + 4); }
-  if (s.meter.label) { panel(c, mx0 + mw - 34, my0 - 15, 34, 9); text(c, s.meter.label, mx0 + mw - 33, my0 - 14); }
+  if (s.meter.notch != null) { // the power that lands on the target: stop the meter here for a ¾ or ½ shot
+    const nx = Math.round(toX(s.meter.notch)); c.fillStyle = U.flag;
+    c.fillRect(nx - 2, my0 - 6, 5, 1); c.fillRect(nx - 1, my0 - 5, 3, 1); c.fillRect(nx, my0 - 4, 1, mh + 6);
+  }
+  if (s.meter.label) { const lw = s.meter.label.length * FS + 4; panel(c, mx0 + mw - lw, my0 - 16, lw, 9); text(c, s.meter.label, mx0 + mw - lw + 2, my0 - 15); }
 
   if (s.msg) {
     const w = s.msg.length * FS + 8, x = Math.round((W - w) / 2);
-    panel(c, x, 92, w, 13); text(c, s.msg, x + 4, 95);
+    panel(c, x, HZ + 14, w, 13); text(c, s.msg, x + 4, HZ + 17);
   }
 }

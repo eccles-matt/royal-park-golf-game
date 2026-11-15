@@ -63,7 +63,6 @@ export function buildTerrain(hole) {
       const n = Math.sin(x * 0.21 + Math.sin(y * 0.13)) + Math.sin(y * 0.17 + Math.cos(x * 0.11)) + Math.sin((x + y) * 0.53) * 0.4;
       base = n > (inPlay ? 0.9 : 0.2) ? C.roughDark : C.rough;
     }
-    if (Math.hypot(x - pin.x, y - pin.y) < 0.35) base = [58, 58, 42];
     // shading from the slope
     const hx = (height[i + (gx < GW - 1 ? 1 : 0)] - height[i - (gx > 0 ? 1 : 0)]) * RES / 2;
     const hy = (height[i + (gy < GH - 1 ? GW : 0)] - height[i - (gy > 0 ? GW : 0)]) * RES / 2;
