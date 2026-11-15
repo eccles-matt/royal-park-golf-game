@@ -151,6 +151,7 @@ export function buildTerrain(course, mask) {
     inPlay(x, y) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) return false;
       const i = idx(x, y); if (i >= 0 && surf[i] === SURF.ROAD) return false;
+      const f8 = course.fence8; if (x < f8[0][0] && y > f8[0][1] && y < f8[f8.length - 1][1]) return false; // over the 8th's fence
       return !inCutting(course, x, y);
     }
   };
