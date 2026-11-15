@@ -1,6 +1,6 @@
 // Offline support. Network first, so a new deploy shows up on the next launch;
 // falls back to the cached copy when there's no connection.
-const VERSION = "rp-v3";
+const VERSION = "rp-v4";
 const FILES = [
   "./", "index.html", "styles.css", "manifest.webmanifest",
   "fonts/press-start-2p.woff2",

@@ -9,7 +9,8 @@ export const THEME = {
   fairway: "#bdd477",
   stripe: "#cde086",
   fringe: "#a9c266",
-  green: "#d3e98c",
+  green: "#bcd977",       // putting surface: two close tones so it reads as mown grass, not a flat sheet
+  greenStripe: "#c6e182",
   sand: "#f4d39a",
   sandEdge: "#d8b277",
   tee: "#d3e98c",
